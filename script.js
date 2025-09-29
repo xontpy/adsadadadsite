@@ -23,6 +23,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const viewersCount = document.getElementById('viewers-count'); // Corrected reference
     const durationSlider = document.getElementById('duration-slider');
     const durationCount = document.getElementById('duration-count'); // Corrected reference
+    const saveProxiesButton = document.getElementById('save-proxies-button');
+    const proxiesTextarea = document.getElementById('proxies-textarea');
+    const statusBox = document.getElementById('status-box');
 
     // --- Event Listeners for Sliders ---
     if (viewersSlider && viewersCount) {
