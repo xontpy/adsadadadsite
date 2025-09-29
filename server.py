@@ -276,13 +276,12 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
         }
     return {"status": "Idle", "message": "Bot is not running.", "time_left": "N/A"}
 
-# Serve the frontend.
-# The API routes are defined above, so they will be matched first.
 
-# This route specifically serves the index.html for the root URL.
-@app.get("/", response_class=FileResponse)
-async def read_index():
-    return 'index.html'
+# --- Serve Frontend ---
+# This single mount handles all static files (HTML, CSS, JS).
+# The `html=True` argument tells FastAPI to automatically serve `index.html` for the root path (`/`).
+# This replaces the previous, more complex setup.
+app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 # This mount handles all other static file requests (like style.css and script.js)
 # by looking for them in the current directory.
