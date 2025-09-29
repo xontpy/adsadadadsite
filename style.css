@@ -396,3 +396,24 @@ footer {
     color: white;
     border-color: var(--primary-color-hover);
 }
+
+#bot-status-container {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: var(--input-background);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+#bot-status-container h4 {
+    margin-bottom: 10px;
+    color: var(--primary-color);
+    font-size: 1.1em;
+}
+
+#bot-status-line {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+    color: var(--light-color);
+    white-space: pre-wrap; /* Allows wrapping of long status lines */
+}
