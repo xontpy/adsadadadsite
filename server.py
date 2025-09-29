@@ -177,8 +177,12 @@ async def start_bot(request: Request, user: dict = Depends(get_current_user)):
     proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
 
 
-    if not all([channel, num_viewers, duration_minutes]):
-        raise HTTPException(status_code=400, detail="Missing required parameters")
+    if not channel:
+        raise HTTPException(status_code=400, detail="Channel name is required.")
+    if num_viewers is None or not isinstance(num_viewers, int) or num_viewers <= 0:
+        raise HTTPException(status_code=400, detail="Number of viewers must be a positive integer.")
+    if duration_minutes is None or not isinstance(duration_minutes, int) or duration_minutes <= 0:
+        raise HTTPException(status_code=400, detail="Duration must be a positive integer.")
 
     try:
         # Convert duration from minutes to seconds
