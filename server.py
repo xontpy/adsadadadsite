@@ -171,7 +171,7 @@ async def start_bot(request: Request, user: dict = Depends(get_current_user)):
 
     data = await request.json()
     channel = data.get("channel")
-    num_viewers = data.get("num_viewers")
+    num_viewers = data.get("views")
     duration_minutes = data.get("duration") # Duration from frontend is in minutes
     username = user.get("username", "UnknownUser") # Get username from user object
     proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
