@@ -159,17 +159,23 @@ async function fetchUserData(token) {
                     duration: parseInt(duration)
                 }),
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => {
+                        console.error('Server error:', err);
+                        throw err;
+                    });
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.message) {
                     showStatus('Views have been sent. Please wait for them to arrive.', 'success', true); // Toast notification
-                } else {
-                    showStatus(data.detail || 'An unknown error occurred.', 'error');
                 }
             })
             .catch(error => {
                 console.error('Error starting bot:', error);
-                showStatus('Failed to communicate with the server.', 'error');
+                showStatus(error.detail || 'Failed to communicate with the server.', 'error');
             });
         });
     }
