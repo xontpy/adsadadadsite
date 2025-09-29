@@ -162,7 +162,7 @@ async function fetchUserData(token) {
             .then(response => response.json())
             .then(data => {
                 if (data.message) {
-                    showStatus('Views have been sent. Please wait for them to arrive.', 'success');
+                    showStatus('Views have been sent. Please wait for them to arrive.', 'success', true); // Toast notification
                 } else {
                     showStatus(data.detail || 'An unknown error occurred.', 'error');
                 }
@@ -201,18 +201,19 @@ async function fetchUserData(token) {
         });
     }
     
-    function showStatus(message, type = 'info') {
+    function showStatus(message, type = 'info', isToast = false) {
         if (statusBox) {
             statusBox.textContent = message;
             statusBox.className = `status-box ${type}`;
 
-            // Add the 'show' class to trigger the animation
-            statusBox.classList.add('show');
-
-            // Remove the 'show' class after 3 seconds
-            setTimeout(() => {
-                statusBox.classList.remove('show');
-            }, 3000);
+            if (isToast) {
+                statusBox.classList.add('is-toast', 'show');
+                setTimeout(() => {
+                    statusBox.classList.remove('show');
+                    // Remove the is-toast class after the animation is done
+                    setTimeout(() => statusBox.classList.remove('is-toast'), 500);
+                }, 3000);
+            }
         }
     }
 
