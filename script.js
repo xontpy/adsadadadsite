@@ -77,16 +77,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
 
-    async function fetchUserData(token) {
+async function fetchUserData(token) {
+        console.log("Attempting to fetch user data with token:", token); // DEBUG
         try {
             const response = await fetch(`${API_BASE_URL}/api/me`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
     
+            console.log("Response from /api/me:", response.status, response.statusText); // DEBUG
+
             if (response.ok) {
                 const user = await response.json();
+                console.log("Received user data:", user); // DEBUG
                 showLoggedInState(user);
             } else {
+                console.error("Failed to fetch user data. Status:", response.status); // DEBUG
                 localStorage.removeItem('accessToken');
                 showLoginState();
                 if (response.status === 401) {
@@ -99,7 +104,6 @@ document.addEventListener('DOMContentLoaded', () => {
             showStatus('Failed to connect to server.', 'error');
         }
     }
-
     function showLoginState() {
         if (loginButton) loginButton.style.display = 'block';
         if (userProfile) userProfile.style.display = 'none';
