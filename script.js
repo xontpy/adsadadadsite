@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- Constants and Variables ---
-    // const API_BASE_URL = 'https://kickaviews.onrender.com/callback'; // Removed duplicate declaration
+    // const API_BASE_URL = 'https://kickaviews.onrender.com/'; // Removed duplicate declaration
 
     // --- Element References ---
     const loginButton = document.getElementById('login-button');
@@ -194,3 +194,4 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Initial Load ---
     checkUserSession();
 });
+
