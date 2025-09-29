@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Configuration ---
     // IMPORTANT: Replace this with your actual Render backend URL
-    const API_BASE_URL = 'https://kickaviewss.onrender.com/';
+    const API_BASE_URL = 'https://kickaviewss.onrender.com';
 
     // --- Authentication ---
     
@@ -194,4 +194,5 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Initial Load ---
     checkUserSession();
 });
+
 
