@@ -147,10 +147,18 @@ async function fetchUserData(token) {
                 return;
             }
 
+            const num_viewers = parseInt(viewers);
+            const duration_minutes = parseInt(duration);
+
+            if (isNaN(duration_minutes) || duration_minutes <= 0) {
+                alert(`Invalid duration value detected: ${duration}. Please ensure you select a positive number of minutes.`);
+                return;
+            }
+
             const payload = {
                 channel: channel,
-                num_viewers: parseInt(viewers),
-                duration_minutes: parseInt(duration)
+                num_viewers: num_viewers,
+                duration_minutes: duration_minutes
             };
             console.log("Sending this payload to /api/start:", payload); // New debug line
 
