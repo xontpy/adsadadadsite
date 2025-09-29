@@ -199,7 +199,7 @@ header h1 {
     padding: 5px;
 }
 
-.status-box {
+.status-box.is-toast {
     position: fixed;
     top: 20px;
     right: 20px;
@@ -215,7 +215,7 @@ header h1 {
     text-align: center;
 }
 
-.status-box.show {
+.status-box.is-toast.show {
     opacity: 1;
     transform: translateX(0);
 }
