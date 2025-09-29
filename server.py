@@ -283,10 +283,6 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
 # This replaces the previous, more complex setup.
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
-# This mount handles all other static file requests (like style.css and script.js)
-# by looking for them in the current directory.
-app.mount("/", StaticFiles(directory="."), name="static")
-
 
 # The if __name__ == "__main__" block has been removed.
 # The server must be started using run_server.py for multiprocessing to work correctly.
