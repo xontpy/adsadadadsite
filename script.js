@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Configuration ---
     // IMPORTANT: Replace this with your actual Render backend URL
-    const API_BASE_URL = 'https://kickaviewss.onrender.com';
+    const API_BASE_URL = 'https://your-backend-url.onrender.com';
 
     // --- Authentication ---
     
@@ -46,17 +46,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function checkUserSession() {
-        const hash = window.location.hash;
-        if (hash.startsWith('#token=')) {
-            const token = hash.substring('#token='.length);
-            if (token) {
-                localStorage.setItem('accessToken', token);
-                window.history.replaceState(null, '', window.location.pathname + window.location.search);
-                await fetchUserData(token);
-                return;
-            }
-        }
-
+        // The logic to read the token from the URL hash has been moved to auth.html.
+        // This function now only needs to check for a token in localStorage.
         const storedToken = localStorage.getItem('accessToken');
         if (storedToken) {
             await fetchUserData(storedToken);
@@ -70,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`${API_BASE_URL}/api/me`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-
+    
             if (response.ok) {
                 const user = await response.json();
                 showLoggedInState(user);
@@ -194,4 +185,3 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Initial Load ---
     checkUserSession();
 });
-
