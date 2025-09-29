@@ -199,6 +199,39 @@ header h1 {
     padding: 5px;
 }
 
+.status-box {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 15px 25px;
+    border-radius: 10px;
+    color: white;
+    font-weight: 500;
+    z-index: 1000;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: opacity 0.5s, transform 0.5s ease-in-out;
+    max-width: 300px;
+    text-align: center;
+}
+
+.status-box.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.status-box.success {
+    background-color: var(--success-color);
+}
+
+.status-box.error {
+    background-color: var(--danger-color);
+}
+
+.status-box.info {
+    background-color: var(--primary-color);
+}
+
 .tab-button {
     flex: 1;
     padding: 12px;
