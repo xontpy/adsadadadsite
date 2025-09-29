@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viewbot Control Panel</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <div class="background-animation">
+        <div class="shape shape1"></div>
+        <div class="shape shape2"></div>
+        <div class="shape shape3"></div>
+        <div class="shape shape4"></div>
+    </div>
+    <div class="container">
+        <header>
+            <h1>Viewbot Control Panel</h1>
+            <div id="user-profile" class="user-profile" style="display: none;">
+                <img id="user-avatar" src="" alt="Avatar">
+                <div class="user-details">
+                    <span id="username"></span>
+                    <span id="permissions"></span>
+                </div>
+                <button id="logout-button" class="btn-logout"><i class="fas fa-sign-out-alt"></i></button>
+            </div>
+            <button id="login-button" class="btn-discord" style="display: block;">
+                <i class="fab fa-discord"></i> Login with Discord
+            </button>
+        </header>
+
+        <main id="control-panel" style="display: none;">
+            <div class="tabs">
+                <button class="tab-button active" data-tab="viewbot-content">
+                    <i class="fas fa-eye"></i> Viewbot
+                </button>
+                <button class="tab-button" data-tab="proxies-content">
+                    <i class="fas fa-server"></i> Proxies
+                </button>
+            </div>
+
+            <div id="viewbot-content" class="tab-content active">
+                <div class="controls">
+                    <div class="control-group">
+                        <label for="channel-input"><i class="fas fa-tv"></i> Kick Channel</label>
+                        <input type="text" id="channel-input" placeholder="Enter channel name">
+                    </div>
+                    <div class="control-group">
+                        <label for="viewers-input"><i class="fas fa-users"></i> Viewers (<span id="viewers-count">100</span>)</label>
+                        <input type="range" id="viewers-slider" min="1" max="100" value="100">
+                    </div>
+                    <div class="control-group">
+                        <label for="duration-input"><i class="fas fa-clock"></i> Duration (<span id="duration-count">60</span> mins)</label>
+                        <input type="range" id="duration-slider" min="1" max="360" value="60">
+                    </div>
+                </div>
+                <button id="start-bot-button" class="btn btn-success"><i class="fas fa-play"></i> Start Views</button>
+            </div>
+
+            <div id="proxies-content" class="tab-content">
+                <textarea id="proxies-textarea" placeholder="Enter proxies, one per line..."></textarea>
+                <button id="save-proxies-button" class="btn btn-primary"><i class="fas fa-save"></i> Save Proxies</button>
+            </div>
+        </main>
+
+        <footer>
+            <div id="status-box">Status will appear here.</div>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
