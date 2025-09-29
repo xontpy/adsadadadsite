@@ -136,12 +136,11 @@ async def callback(request: Request, code: str):
         # The line you pointed out (line 117) was creating a new, incorrect token.
         # We now use the correct token from Discord and pass it to the frontend.
         
-        # Redirect to the root of the frontend with the token in the hash.
-        response = RedirectResponse(url=f"/#token={discord_access_token}")
+        # Redirect to the new auth.html page with the token in the hash.
+        response = RedirectResponse(url=f"/auth.html#token={discord_access_token}")
         return response
     except requests.exceptions.RequestException as e:
         print(f"Error during Discord token exchange: {e}")
-        return JSONResponse(content={"error": "Failed to get token from Discord."}, status_code=500)
 
 
 @app.get("/logout")
