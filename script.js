@@ -162,7 +162,7 @@ async function fetchUserData(token) {
             .then(response => response.json())
             .then(data => {
                 if (data.message) {
-                    showStatus(data.message, 'success');
+                    showStatus('Views have been sent. Please wait for them to arrive.', 'success');
                 } else {
                     showStatus(data.detail || 'An unknown error occurred.', 'error');
                 }
@@ -205,6 +205,14 @@ async function fetchUserData(token) {
         if (statusBox) {
             statusBox.textContent = message;
             statusBox.className = `status-box ${type}`;
+
+            // Add the 'show' class to trigger the animation
+            statusBox.classList.add('show');
+
+            // Remove the 'show' class after 3 seconds
+            setTimeout(() => {
+                statusBox.classList.remove('show');
+            }, 3000);
         }
     }
 
