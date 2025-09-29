@@ -66,6 +66,15 @@ bot_start_time = None
 bot_duration = 0
 bot_stop_event = None # Event to signal the bot to stop gracefully
 
+# --- Shared Status for UI ---
+# Use a multiprocessing Manager to create a shared dictionary
+manager = multiprocessing.Manager()
+bot_status = manager.dict()
+
+# Initialize status
+bot_status["running"] = False
+bot_status["status_line"] = ""
+
 # --- Authentication Dependency ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
@@ -191,16 +200,54 @@ async def start_bot(request: Request, user: dict = Depends(get_current_user)):
         # Create a stop event for graceful shutdown
         bot_stop_event = multiprocessing.Event()
         
+        # Reset status before starting
+        bot_status["running"] = True
+        bot_status["status_line"] = "Initializing..."
+
         # Update the Process call to include all required arguments
         bot_process = multiprocessing.Process(
             target=run_viewbot_logic, 
-            args=(channel, num_viewers, duration_seconds, bot_stop_event, username, proxies_path)
+            args=(channel, num_viewers, duration_seconds, bot_stop_event, username, proxies_path, bot_status)
         )
         bot_process.start()
         return {"message": "Bot started successfully"}
     except Exception as e:
-        print(f"Error starting bot: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to start bot: {e}")
+        bot_status["running"] = False
+        bot_status["status_line"] = f"Error: {e}"
+        raise HTTPException(status_code=500, detail=f"Server error: {e}")
+
+@app.post("/api/stop")
+async def stop_bot(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    global bot_process, bot_stop_event
+
+    if not bot_process or not bot_process.is_alive():
+        raise HTTPException(status_code=400, detail="Bot is not running.")
+
+    if bot_stop_event:
+        bot_stop_event.set() # Signal the bot to stop
+    
+    # Give it a moment to shut down, then terminate if it hasn't
+    bot_process.join(timeout=15)
+    if bot_process.is_alive():
+        bot_process.terminate()
+
+    bot_process = None
+    bot_stop_event = None
+    
+    # Reset status
+    bot_status["running"] = False
+    bot_status["status_line"] = "Bot stopped."
+
+    return {"message": "Bot stopped successfully"}
+
+@app.get("/api/status")
+async def get_bot_status():
+    """Returns the current status of the bot."""
+    # The bot_status is a proxy object, so we convert it to a regular dict
+    return dict(bot_status)
 
 
 @app.post("/api/stop")
