@@ -20,9 +20,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const stopBotButton = document.getElementById('stop-bot-button');
     const channelInput = document.getElementById('channel-input');
     const viewersSlider = document.getElementById('viewers-slider');
-    const viewersInput = document.getElementById('viewers-input');
+    const viewersCount = document.getElementById('viewers-count'); // Corrected reference
     const durationSlider = document.getElementById('duration-slider');
-    const durationInput = document.getElementById('duration-input');
+    const durationCount = document.getElementById('duration-count'); // Corrected reference
+
+    // --- Event Listeners for Sliders ---
+    if (viewersSlider && viewersCount) {
+        viewersSlider.addEventListener('input', () => {
+            viewersCount.textContent = viewersSlider.value;
+        });
+    }
+
+    if (durationSlider && durationCount) {
+        durationSlider.addEventListener('input', () => {
+            durationCount.textContent = durationSlider.value;
+        });
+    }
+
 
     // --- Configuration ---
     // This is the critical line to fix.
@@ -106,8 +120,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if(viewersCount) viewersCount.textContent = viewersSlider.value;
         }
+        // Also update the duration slider if needed, though no max is provided from user data
     }
-
     // --- Bot Actions ---
     if (startBotButton) {
         startBotButton.addEventListener('click', () => {
