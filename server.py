@@ -130,14 +130,10 @@ async def callback(request: Request, code: str):
         token_r = requests.post('https://discord.com/api/oauth2/token', data=token_data, headers=headers)
         token_r.raise_for_status() # Raise an exception for bad status codes
         
-        # This is the actual token from Discord that the application needs.
         discord_access_token = token_r.json()['access_token']
         
-        # The line you pointed out (line 117) was creating a new, incorrect token.
-        # We now use the correct token from Discord and pass it to the frontend.
-        
-        # Redirect to the new auth.html page with the token in the hash.
-        response = RedirectResponse(url=f"/auth.html#token={discord_access_token}")
+        # Redirect to the main page with the token in the hash.
+        response = RedirectResponse(url=f"/#token={discord_access_token}")
         return response
     except requests.exceptions.RequestException as e:
         print(f"Error during Discord token exchange: {e}")
