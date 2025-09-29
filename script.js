@@ -150,7 +150,7 @@ async function fetchUserData(token) {
             const payload = {
                 channel: channel,
                 num_viewers: parseInt(viewers),
-                duration: parseInt(duration)
+                duration_minutes: parseInt(duration)
             };
             console.log("Sending this payload to /api/start:", payload); // New debug line
 
