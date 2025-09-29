@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- Constants and Variables ---
-    // const API_BASE_URL = 'https://kickaviews.onrender.com'; // Removed duplicate declaration
+    // const API_BASE_URL = 'https://kickaviews.onrender.com/callback'; // Removed duplicate declaration
 
     // --- Element References ---
     const loginButton = document.getElementById('login-button');
@@ -20,40 +20,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const stopBotButton = document.getElementById('stop-bot-button');
     const channelInput = document.getElementById('channel-input');
     const viewersSlider = document.getElementById('viewers-slider');
-    const viewersCount = document.getElementById('viewers-count');
+    const viewersInput = document.getElementById('viewers-input');
     const durationSlider = document.getElementById('duration-slider');
-    const durationCount = document.getElementById('duration-count');
+    const durationInput = document.getElementById('duration-input');
 
-    const saveProxiesButton = document.getElementById('save-proxies-button');
-    const proxiesTextarea = document.getElementById('proxies-textarea');
-    const statusBox = document.getElementById('status-box');
-
-    // --- Tab Switching ---
-    if (viewbotTab && proxiesTab) {
-        viewbotTab.addEventListener('click', () => {
-            viewbotTab.classList.add('active');
-            proxiesTab.classList.remove('active');
-            viewbotContent.classList.add('active');
-            proxiesContent.classList.remove('active');
-        });
-
-        proxiesTab.addEventListener('click', () => {
-            proxiesTab.classList.add('active');
-            viewbotTab.classList.remove('active');
-            proxiesContent.classList.add('active');
-            viewbotContent.classList.remove('active');
-        });
-    }
-
-    // --- Slider to Input Sync ---
-    if (viewersSlider && viewersCount) {
-        viewersSlider.addEventListener('input', () => { viewersCount.textContent = viewersSlider.value; });
-    }
-    if (durationSlider && durationCount) {
-        durationSlider.addEventListener('input', () => { durationCount.textContent = durationSlider.value; });
-    }
+    // --- Configuration ---
+    // IMPORTANT: Replace this with your actual Render backend URL
+    const API_BASE_URL = 'https://kickaviews.onrender.co';
 
     // --- Authentication ---
+    
+    // Function to get the token from the URL hash
     if (loginButton) {
         loginButton.addEventListener('click', () => {
             window.location.href = `${API_BASE_URL}/login`;
@@ -216,5 +193,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Initial Load ---
     checkUserSession();
-
 });
