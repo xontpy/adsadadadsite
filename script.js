@@ -147,17 +147,20 @@ async function fetchUserData(token) {
                 return;
             }
 
+            const payload = {
+                channel: channel,
+                num_viewers: parseInt(viewers),
+                duration: parseInt(duration)
+            };
+            console.log("Sending this payload to /api/start:", payload); // New debug line
+
             fetch(`${API_BASE_URL}/api/start`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({
-                    channel: channel,
-                    num_viewers: parseInt(viewers),
-                    duration: parseInt(duration)
-                }),
+                body: JSON.stringify(payload),
             })
             .then(response => {
                 if (!response.ok) {
