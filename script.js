@@ -25,9 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const durationInput = document.getElementById('duration-input');
 
     // --- Configuration ---
-    // IMPORTANT: Replace this with your actual Render backend URL
+    // This is the critical line to fix.
     const API_BASE_URL = 'https://kickaviewss.onrender.com';
-
     // --- Authentication ---
     
     // Function to get the token from the URL hash
@@ -46,15 +45,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function checkUserSession() {
-        // The logic to read the token from the URL hash has been moved to auth.html.
-        // This function now only needs to check for a token in localStorage.
-        const storedToken = localStorage.getItem('accessToken');
-        if (storedToken) {
-            await fetchUserData(storedToken);
+        const hash = window.location.hash;
+        if (hash.startsWith('#token=')) {
+            const token = hash.substring('#token='.length);
+            localStorage.setItem('accessToken', token);
+            // Use replaceState to clean the URL without reloading
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            await fetchUserData(token);
         } else {
-            showLoginState();
+            const storedToken = localStorage.getItem('accessToken');
+            if (storedToken) {
+                await fetchUserData(storedToken);
+            } else {
+                showLoginState();
+            }
         }
     }
+
 
     async function fetchUserData(token) {
         try {
@@ -82,13 +89,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function showLoginState() {
         if (loginButton) loginButton.style.display = 'block';
         if (userProfile) userProfile.style.display = 'none';
-        if (controlPanel) controlPanel.style.display = 'none';
     }
 
     function showLoggedInState(user) {
         if (loginButton) loginButton.style.display = 'none';
         if (userProfile) userProfile.style.display = 'flex';
-        if (controlPanel) controlPanel.style.display = 'block';
         
         if (usernameSpan) usernameSpan.textContent = user.username;
         if (permissionsSpan) permissionsSpan.textContent = `(Level: ${user.level})`;
@@ -185,4 +190,3 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Initial Load ---
     checkUserSession();
 });
-
