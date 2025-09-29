@@ -1,13 +1,9 @@
 import asyncio
 import random
-import threading
 import time
-import traceback
 import curl_cffi
 from curl_cffi import requests, AsyncSession
 import sys
-import customtkinter
-import queue
 
 # --- Core Bot Logic ---
 
@@ -230,23 +226,6 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
     logger(f"[{index}] Viewer task stopped.")
     connected_viewers_counter.discard(index)
 
-def start_connection_thread(app, channel_id, index, proxies_list):
-    """Wrapper to run the async connection handler in a thread for the GUI."""
-    def thread_target():
-        try:
-            # This function is not compatible with the new connection_handler_async signature
-            # It needs to be updated or removed if the GUI part is not used with this logic.
-            # For now, it will fail if called.
-            logger = app.log_status
-            token, proxy_url = get_token_sync(logger, proxies_list)
-            asyncio.run(connection_handler_async(logger, channel_id, index, token, proxy_url, stop_event=app.stop_event))
-        except Exception as e:
-            app.log_status(f"[{index}] Thread failed: {e}")
-    
-    thread = threading.Thread(target=thread_target, daemon=True)
-    thread.start()
-    return thread
-
 async def start_viewbot_async(channel_name, viewers, duration, stop_event, discord_user=None):
     """Asynchronously starts the viewbot logic and returns a future."""
     loop = asyncio.get_running_loop()
@@ -347,109 +326,3 @@ def run_viewbot_logic(channel_name, viewers, duration, stop_event, discord_user=
     finally:
         completion_message = f"Viewbot session for {channel_name} has finished."
         logger(completion_message)
-
-
-
-stop_event = asyncio.Event()
-
-def log_status(message):
-    print(f"[{time.strftime('%H:%M:%S')}] {message}")
-
-async def run_async_tasks(channel, total_views, duration_minutes):
-    proxies_list = load_proxies_sync(log_status)
-    if not proxies_list:
-        log_status("Halting: Proxy loading failed.")
-        return
-
-    channel_id = get_channel_id_sync(log_status, channel, proxies_list)
-    if not channel_id:
-        log_status("Could not get channel ID. Exiting.")
-        return
-
-    # 1. Fetch tokens concurrently
-    tokens_with_proxies = await get_tokens_in_bulk_async(log_status, proxies_list, total_views)
-    if not tokens_with_proxies:
-        log_status("Halting: No tokens were fetched.")
-        return
-
-    # 2. Start timer and status updater
-    log_status("Token acquisition finished.")
-    start_time = time.time()
-    connected_viewers = set()
-    duration_seconds = duration_minutes * 60
-
-    async def status_updater_task():
-        """A task that counts down duration and prints status."""
-        if duration_seconds > 0:
-            end_time = start_time + duration_seconds
-            while time.time() < end_time and not stop_event.is_set():
-                remaining = end_time - time.time()
-                mins, secs = divmod(remaining, 60)
-                status_line = f"\rTime Left: {int(mins):02d}:{int(secs):02d} | Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)}"
-                sys.stdout.write(status_line)
-                sys.stdout.flush()
-                await asyncio.sleep(1)
-            stop_event.set()
-        else:  # Run indefinitely
-            log_status("Running indefinitely. Press Ctrl+C to stop.")
-            while not stop_event.is_set():
-                status_line = f"\rSending Views: {len(connected_viewers)}/{len(tokens_with_proxies)}"
-                sys.stdout.write(status_line)
-                sys.stdout.flush()
-                await asyncio.sleep(1)
-        
-        # Clear the line when done
-        sys.stdout.write("\r" + " " * 60 + "\r")
-        sys.stdout.flush()
-
-    status_updater = asyncio.create_task(status_updater_task())
-
-    # 3. Spawn viewer tasks with pre-fetched tokens
-    duration_text = f"for {duration_minutes} minutes" if duration_minutes > 0 else "indefinitely"
-    log_status(f"Sending {len(tokens_with_proxies)} viewers to {channel} {duration_text}.")
-    
-    viewer_tasks = [
-        asyncio.create_task(connection_handler_async(log_status, channel_id, i, token, proxy_url, stop_event, proxies_list, connected_viewers))
-        for i, (token, proxy_url) in enumerate(tokens_with_proxies)
-    ]
-
-    # Wait for the status updater to finish
-    await status_updater
-    log_status("Timer finished or bot was stopped. Stopping viewer tasks...")
-    stop_event.set()
-
-    await asyncio.gather(*viewer_tasks, return_exceptions=True)
-    log_status("All viewer tasks have been terminated.")
-
-def main():
-    try:
-        channel = input("Enter the channel name/link: ").strip().split("/")[-1]
-        if not channel:
-            print("Channel name cannot be empty.")
-            return
-
-        total_views = int(input("Enter the number of viewers: "))
-        duration_minutes = int(input("Enter the duration in minutes (0 for infinite): "))
-    except ValueError:
-        print("Invalid input. Please enter a number.")
-        return
-    except (KeyboardInterrupt, EOFError):
-        print("\nExiting.")
-        return
-
-    async def run():
-        try:
-            await run_async_tasks(channel, total_views, duration_minutes)
-        except asyncio.CancelledError:
-            log_status("Main task cancelled.")
-
-    try:
-        asyncio.run(run())
-    except KeyboardInterrupt:
-        log_status("\nCtrl+C detected. Shutting down gracefully...")
-        stop_event.set()
-    finally:
-        log_status("Bot has stopped.")
-
-if __name__ == "__main__":
-    main()
