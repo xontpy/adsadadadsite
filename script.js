@@ -115,6 +115,10 @@ async function fetchUserData(token) {
     function showLoginState() {
         if (loginButton) loginButton.style.display = 'block';
         if (userProfile) userProfile.style.display = 'none';
+        if (proxiesTab) proxiesTab.style.display = 'none';
+        if (proxiesContent) proxiesContent.style.display = 'none';
+        if (viewbotTab) viewbotTab.classList.add('active');
+        if (viewbotContent) viewbotContent.style.display = 'block';
     }
 
     function showLoggedInState(user) {
@@ -133,6 +137,14 @@ async function fetchUserData(token) {
             if(viewersCount) viewersCount.textContent = viewersSlider.value;
         }
         // Also update the duration slider if needed, though no max is provided from user data
+
+        // Show the proxies tab only for owners
+        if (user.is_owner) {
+            if (proxiesTab) proxiesTab.style.display = 'block';
+            loadProxies();
+        } else {
+            if (proxiesTab) proxiesTab.style.display = 'none';
+        }
     }
     // --- Bot Actions ---
     controlPanel.addEventListener('click', (event) => {
@@ -323,6 +335,21 @@ async function fetchUserData(token) {
 
     // --- Initial Load ---
     checkUserSession();
+
+    // --- Tab Switching ---
+    const tabs = document.querySelectorAll('.tab-button');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            // Remove active class from all tabs and content
+            tabs.forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+
+            // Add active class to the clicked tab and show its content
+            tab.classList.add('active');
+            const tabContentId = tab.getAttribute('data-tab');
+            document.getElementById(tabContentId).style.display = 'block';
+        });
+    });
 });
 
 
