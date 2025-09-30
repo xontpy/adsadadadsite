@@ -94,6 +94,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         
     user_json['level'] = user_level
     user_json['max_views'] = max_views
+    user_json['is_owner'] = OWNER_ROLE_ID in guild_roles if OWNER_ROLE_ID else False
     
     return user_json
 
@@ -131,7 +132,7 @@ async def get_me(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=401, detail="Not authenticated")
     return {
         'id': user['id'], 'username': user['username'], 'avatar': user['avatar'],
-        'max_views': user['max_views'], 'level': user['level'],
+        'max_views': user['max_views'], 'level': user['level'], 'is_owner': user['is_owner'],
     }
 
 @app.post("/api/start")
@@ -203,7 +204,7 @@ async def get_bot_status():
 
 @app.post("/api/save-proxies")
 async def save_proxies(request: Request, user: dict = Depends(get_current_user)):
-    if not user:
+    if not user or not user.get('is_owner'):
         raise HTTPException(status_code=403, detail="Unauthorized")
     
     global bot_process, bot_stop_event
@@ -237,7 +238,7 @@ async def save_proxies(request: Request, user: dict = Depends(get_current_user))
 
 @app.get("/api/get-proxies")
 async def get_proxies(user: dict = Depends(get_current_user)):
-    if not user:
+    if not user or not user.get('is_owner'):
         raise HTTPException(status_code=403, detail="Unauthorized")
     proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
     try:
