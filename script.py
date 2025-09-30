@@ -185,10 +185,10 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
         ws = None
         try:
-            async with AsyncSession() as session:
+            async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
                 ws = await session.ws_connect(
                     f"wss://websockets.kick.com/viewer/v1/connect?token={token}",
-                    proxy=proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10
+                    headers={"User-Agent": "Mozilla/5.0"}, timeout=10
                 )
                 
                 connected_viewers_counter.add(index)
