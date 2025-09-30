@@ -101,7 +101,7 @@ async def get_token_async(logger=console_logger, proxies_list=None):
     """Gets a viewer token using fully asynchronous requests for maximum speed."""
     # This function is designed for speed and high concurrency.
     # It will retry up to 3 times with different proxies if it fails.
-    for _ in range(3):
+    for i in range(3):
         _, proxy_url = pick_proxy(logger, proxies_list)
         if not proxy_url:
             continue # Try to get another proxy if the format was bad
@@ -121,10 +121,12 @@ async def get_token_async(logger=console_logger, proxies_list=None):
                 if r.status_code == 200:
                     token = r.json()["data"]["token"]
                     return token, proxy_url # Success
-                
-        except Exception:
-            # Silently ignore errors and retry with a new proxy
-            pass
+                else:
+                    logger(f"Token attempt {i+1}/3 failed with status {r.status_code} using proxy {proxy_url}")
+
+        except Exception as e:
+            # Log the exception to understand the failure
+            logger(f"Token attempt {i+1}/3 failed with exception: {e} using proxy {proxy_url}")
             
     return None, None # Failed after all retries
 
@@ -135,8 +137,8 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     """Fetches multiple tokens concurrently in batches, retrying until the desired count is met."""
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
-    # Set a much higher concurrency limit for extreme speed
-    CONCURRENCY_LIMIT = 500
+    # Set a much lower concurrency limit to avoid rate-limiting
+    CONCURRENCY_LIMIT = 50
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
