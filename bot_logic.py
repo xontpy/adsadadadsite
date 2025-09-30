@@ -138,7 +138,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
     # Set a much lower concurrency limit to avoid rate-limiting
-    CONCURRENCY_LIMIT = 50
+    CONCURRENCY_LIMIT = 20
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
@@ -169,11 +169,12 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
 async def connection_handler_async(logger, channel_id, index, initial_token, initial_proxy_url, stop_event, proxies_list, connected_viewers_counter):
     """
     A persistent handler for a single viewer connection.
-    It uses an initial token but will fetch new ones if the connection drops.
+    It uses an initial token and retries with it, fetching a new one only after multiple failures.
     """
     token = initial_token
     proxy_url = initial_proxy_url
     connection_attempts = 0
+    token_retries = 0
 
     while not stop_event.is_set():
         if not token:
@@ -183,6 +184,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                 token, proxy_url = new_token_data
                 logger(f"[{index}] Successfully got new token.")
                 connection_attempts = 0 # Reset attempts on new token
+                token_retries = 0
             else:
                 # If getting a token fails, apply exponential backoff
                 connection_attempts += 1
@@ -204,6 +206,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                 logger(f"[{index}] Connection successful!")
                 connected_viewers_counter.add(index)
                 connection_attempts = 0 # Reset after successful connection
+                token_retries = 0
                 
                 counter = 0
                 while not stop_event.is_set():
@@ -221,8 +224,10 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
         except (curl_cffi.errors.CurlError, asyncio.TimeoutError) as e:
             logger(f"[{index}] Connection attempt #{connection_attempts} failed: {e}. Reconnecting...")
+            token_retries += 1
         except Exception as e:
             logger(f"[{index}] Unexpected error on attempt #{connection_attempts}: {e}. Reconnecting...")
+            token_retries += 1
         finally:
             if ws:
                 await ws.close()
@@ -231,7 +236,10 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                 logger(f"[{index}] Disconnecting. Removing from viewer count.")
                 connected_viewers_counter.discard(index)
             
-            token = None 
+            # After 3 failed attempts with the same token, get a new one.
+            if token_retries >= 3:
+                logger(f"[{index}] Failed to connect 3 times with the same token. Fetching a new one.")
+                token = None
             
             if not stop_event.is_set():
                 # Exponential backoff with jitter
