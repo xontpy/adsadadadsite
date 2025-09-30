@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import uvicorn
+from script import run_viewbot_logic
 # REMOVE: from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -166,7 +167,6 @@ async def get_me(user: dict = Depends(get_current_user)):
 
 @app.post("/api/start")
 async def start_bot(request: Request, user: dict = Depends(get_current_user)):
-    from script import run_viewbot_logic
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required.")
     # REMOVED: Permission check to allow any authenticated user to start the bot.
