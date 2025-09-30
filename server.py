@@ -262,7 +262,9 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
     else:
         if user_id in user_bot_sessions:
             del user_bot_sessions[user_id]
-        return {"is_running": False, "status_line": "Bot is not running."}@app.post("/api/save-proxies")
+        return {"is_running": False, "status_line": "Bot is not running."}
+
+@app.post("/api/save-proxies")
 async def save_proxies(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required. Please log in again.")
