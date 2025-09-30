@@ -57,42 +57,51 @@ async def get_channel_id_async(logger, channel_name=None, proxies_list=None):
     for i in range(5):
         proxy_url = pick_proxy(logger, proxies_list)
         if not proxy_url:
+            await asyncio.sleep(0.1)
             continue
         try:
-            async with AsyncSession(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url}, timeout=5) as s:
+            async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=10) as s:
                 r = await s.get(f"https://kick.com/api/v2/channels/{channel_name}")
-                if r.status_code == 200:
-                    return r.json().get("id")
+                r.raise_for_status()
+                data = r.json()
+                if "id" in data:
+                    return data["id"]
                 else:
-                    logger(f"Channel ID attempt {i+1}/5 failed with status: {r.status_code}...\n")
+                    logger(f"Channel ID attempt {i+1}/5 failed: 'id' not in response.")
         except Exception as e:
-            logger(f"Channel ID attempt {i+1}/5 failed with error: {e}...\n")
-        await asyncio.sleep(1)
-    logger("Failed to get channel ID after multiple retries.\n")
+            error_type = type(e).__name__
+            logger(f"Channel ID attempt {i+1}/5 failed ({error_type})...")
+        
+        if i < 4: # Don't sleep on the last attempt
+            await asyncio.sleep(1)
+
+    logger("Fatal: Failed to get channel ID after 5 attempts.")
     return None
 
 async def get_token_async(logger, proxies_list=None):
     """Gets a viewer token asynchronously."""
-    for _ in range(5):
+    for i in range(5):
         proxy_url = pick_proxy(logger, proxies_list)
         if not proxy_url:
+            await asyncio.sleep(0.1)
             continue
         try:
-            async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=15) as session:
-                await session.get("https://kick.com")
+            async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=10) as session:
                 session.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 r = await session.get('https://websockets.kick.com/viewer/v1/token')
-                if r.status_code == 200:
-                    return r.json()["data"]["token"], proxy_url
-        except Exception:
-            pass
+                r.raise_for_status()
+                return r.json()["data"]["token"], proxy_url
+        except Exception as e:
+            error_type = type(e).__name__
+            logger(f"Token attempt {i+1}/5 failed ({error_type})...")
+            await asyncio.sleep(1)
     return None, None
 
 async def get_tokens_in_bulk_async(logger, proxies_list, count):
     """Fetches multiple tokens concurrently with staggering and retries."""
     logger(f"Fetching {count} tokens...")
     valid_tokens = []
-    CONCURRENCY_LIMIT = 250  # Reduced for stability
+    CONCURRENCY_LIMIT = 100  # Reduced for stability
     max_attempts = 5
     attempts = 0
 
@@ -133,7 +142,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
             else:
-                await asyncio.sleep(15)
+                await asyncio.sleep(random.randint(3, 7)) # Reduced wait time
                 continue
 
         try:
