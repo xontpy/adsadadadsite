@@ -158,12 +158,27 @@ async def get_me(user: dict = Depends(get_current_user)):
 
 @app.post("/api/start")
 async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_user)):
+    print("--- /api/start endpoint hit ---") # DEBUG
     if not user:
+        print("Authentication failed: No user object.") # DEBUG
         raise HTTPException(status_code=401, detail="Authentication required.")
 
     user_id = user['id']
-    if user_id in user_bot_sessions and psutil.pid_exists(user_bot_sessions[user_id]['pid']):
-        raise HTTPException(status_code=400, detail="You already have a bot running.")
+    print(f"Request from user_id: {user_id}") # DEBUG
+
+    if user_id in user_bot_sessions:
+        session = user_bot_sessions[user_id]
+        pid = session.get('pid')
+        pid_exists = psutil.pid_exists(pid) if pid else False
+        print(f"Found existing session for user {user_id}. PID: {pid}, PID exists: {pid_exists}") # DEBUG
+        if pid_exists:
+            print(f"Bot is already running for user {user_id}. Rejecting request.") # DEBUG
+            raise HTTPException(status_code=400, detail="You already have a bot running.")
+        else:
+            print(f"Stale session found for user {user_id}. Cleaning up.") # DEBUG
+            del user_bot_sessions[user_id]
+    else:
+        print(f"No existing session found for user {user_id}. Proceeding to start.") # DEBUG
 
     # Validate against user's max_views
     if payload.views > user.get('max_views', 0):
