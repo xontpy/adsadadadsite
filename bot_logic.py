@@ -177,19 +177,26 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
     """The main async function to run the bot, adapted for the website."""
     logger = lambda msg: bot_logger(status_updater, msg)
     try:
+        logger("Starting bot_logic.py main asyncio loop...")
         asyncio.run(run_bot_async(logger, stop_event, channel, viewers, duration_minutes))
+        logger("bot_logic.py main asyncio loop finished successfully.")
     except Exception as e:
         detailed_error = traceback.format_exc()
         logger(f"An unexpected error occurred in the bot's core loop: {e}\nDetails:\n{detailed_error}")
+        stop_event.set() # Ensure stop_event is set on error
     finally:
+        if not stop_event.is_set():
+            stop_event.set()
         logger("Bot process has stopped.")
 
 async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
     """The main async function to run the bot."""
+    logger("run_bot_async started.")
     duration_seconds = duration_minutes * 60
 
     proxies = await load_proxies_async(logger)
     if not proxies:
+        logger("run_bot_async: No proxies loaded, returning.")
         return
 
     # --- Resilient setup for Channel ID ---
@@ -223,7 +230,7 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
         viewer_tasks.append(task)
         await asyncio.sleep(0.01) # Stagger task creation slightly
 
-    logger("All viewer tasks spawned.")
+    logger("All viewer tasks spawned. Waiting for them to complete...")
 
     # --- Main monitoring loop ---
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
@@ -244,3 +251,4 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
     
     await asyncio.gather(*viewer_tasks, return_exceptions=True)
     logger("All viewers have been stopped.")
+    logger("run_bot_async finished.")
