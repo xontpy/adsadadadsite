@@ -324,3 +324,51 @@ async function fetchUserData(token) {
     // --- Initial Load ---
     checkUserSession();
 });
+
+
+// Function to show status toast
+function showStatus(message, type = 'info') {
+    const statusBox = document.getElementById('status-box');
+    statusBox.textContent = message;
+    statusBox.className = 'status-box show ' + type;
+    setTimeout(() => {
+        statusBox.className = statusBox.className.replace(' show', '');
+    }, 3000);
+}
+
+// Function to fetch and display proxies
+async function loadProxies() {
+    const token = localStorage.getItem('discord_token');
+    if (!token) return;
+
+    try {
+        const response = await fetch('/api/get-proxies', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('proxies-textarea').value = data.proxies;
+        } else {
+            console.error('Failed to load proxies:', await response.text());
+        }
+    } catch (error) {
+        console.error('Error loading proxies:', error);
+    }
+}
+
+// Function to check authentication status
+async function checkAuth() {
+    const token = localStorage.getItem('discord_token');
+    if (!token) {
+        document.getElementById('main-content').style.display = 'block';
+        document.getElementById('login-button').style.display = 'none';
+        pollStatus(); // Start polling for bot status
+        loadProxies(); // Load proxies on page load
+    } else {
+        // Not authenticated
+        document.getElementById('login-button').style.display = 'block';
+    }
+}
