@@ -27,9 +27,12 @@ def bot_logger(status_updater, message):
         sys.stdout.write(f"\r[UI_LOG_FAIL] {message}")
         sys.stdout.flush()
 
-async def load_proxies_async(logger, file_path="proxies.txt"):
-    """Loads proxies from the specified file asynchronously, with caching."""
+async def load_proxies_async(logger):
+    """Loads proxies from 'proxies.txt' located in the script's directory, with caching."""
     global CACHED_PROXIES, LAST_MODIFIED_TIME
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(script_dir, "proxies.txt")
     
     try:
         current_mtime = os.path.getmtime(file_path)
