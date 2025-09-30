@@ -213,7 +213,12 @@ def run_viewbot_logic(channel, num_viewers, duration_seconds, stop_event, proxie
     try:
         asyncio.run(run_bot_async(channel, num_viewers, duration_seconds, stop_event, status_dict, proxies_path))
     except KeyboardInterrupt:
-        pass
+        status_updater(status_dict, "Bot process interrupted by user.")
+    except Exception as e:
+        import traceback
+        # Using a more detailed and multi-line friendly error format
+        error_details = traceback.format_exc()
+        status_updater(status_dict, f"ERROR: {e}\n{error_details}")
     finally:
         status_updater(status_dict, "Bot process has shut down.")
         status_dict["running"] = False
