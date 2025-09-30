@@ -50,10 +50,15 @@ def get_channel_id_sync(logger, channel_name=None, proxies_list=None):
         proxy_url = pick_proxy(logger, proxies_list)
         if not proxy_url:
             continue
+        
+        masked_proxy = proxy_url.split('@')[-1]
+        logger(f"Channel ID attempt {i+1}/5 using proxy: {masked_proxy}")
+
         try:
             s = requests.Session(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url})
-            r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
+            r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=15)
             if r.status_code == 200:
+                logger("Successfully got channel ID.")
                 return r.json().get("id")
             else:
                 logger(f"Channel ID attempt {i+1}/5 failed with status: {r.status_code}...")
