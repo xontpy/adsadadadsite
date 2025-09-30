@@ -175,7 +175,7 @@ async def run_bot_async(channel, viewers, duration_seconds, stop_event, status_d
         logger("Halting: No tokens were fetched.")
         return
 
-    logger("Token acquisition finished. Spawning viewers...")
+    # After token acquisition, immediately start spawning viewers and update status
     start_time = time.time()
     connected_viewers = set()
 
@@ -184,8 +184,6 @@ async def run_bot_async(channel, viewers, duration_seconds, stop_event, status_d
         task = asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
         viewer_tasks.append(task)
         await asyncio.sleep(0.01)
-
-    logger("All viewer tasks launched. Monitoring session.")
 
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
     while time.time() < end_time and not stop_event.is_set():
@@ -196,7 +194,7 @@ async def run_bot_async(channel, viewers, duration_seconds, stop_event, status_d
         else:
             status_line = f"Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)} (Running indefinitely)"
         logger(status_line)
-        await asyncio.sleep(5)
+        await asyncio.sleep(1) # Update status every second for a more responsive feel
 
     if not stop_event.is_set():
         logger("Timer finished. Signaling all viewer tasks to stop.")
