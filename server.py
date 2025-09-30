@@ -177,17 +177,20 @@ async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_u
         stop_event = multiprocessing.Event()
         status_dict = manager.dict({"running": True, "status_line": "Initializing..."})
 
+        status_queue = manager.Queue()
+
         process = multiprocessing.Process(
             target=run_viewbot_logic, 
-            args=(payload.channel, payload.views, duration_seconds, stop_event, proxies_path, status_dict)
+            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration)
         )
         process.start()
 
-        # Store the PID and status dict for the user
+        # Store the PID and status queue for the user
         user_bot_sessions[user_id] = {
             'pid': process.pid,
-            'stop_event': stop_event, # Still need this to signal the process
-            'status': status_dict
+            'stop_event': stop_event,
+            'status_queue': status_queue,
+            'last_status': 'Initializing...'  # Store the last known status
         }
 
         return {"message": "Bot started successfully"}
@@ -208,26 +211,21 @@ async def stop_bot(user: dict = Depends(get_current_user)):
     if session and psutil.pid_exists(session['pid']):
         try:
             proc = psutil.Process(session['pid'])
-            # Signal the process to stop gracefully
             session['stop_event'].set()
-            proc.join(timeout=10) # Wait for graceful shutdown
+            proc.join(timeout=10)
             
-            # Forcefully terminate if it's still alive
             if proc.is_running():
                 proc.terminate()
                 proc.join()
 
         except psutil.NoSuchProcess:
-            # The process already died, which is fine
             pass
         finally:
-            # Clean up the session
             if user_id in user_bot_sessions:
                 del user_bot_sessions[user_id]
         
         return {"message": "Bot stopped successfully"}
     else:
-        # If the bot is not running, ensure the status is correct and clean up any stale session
         if user_id in user_bot_sessions:
             del user_bot_sessions[user_id]
         raise HTTPException(status_code=400, detail="Bot is not running or has already stopped.")
@@ -241,14 +239,15 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
     session = user_bot_sessions.get(user_id)
 
     if session and psutil.pid_exists(session['pid']):
-        status_dict = dict(session['status'])
-        status_dict['is_running'] = True
-        return status_dict
+        # Non-blockingly get the latest message from the queue
+        while not session['status_queue'].empty():
+            session['last_status'] = session['status_queue'].get_nowait()
+        
+        return {"is_running": True, "status_line": session['last_status']}
     else:
         if user_id in user_bot_sessions:
-            del user_bot_sessions[user_id] # Clean up stale session
-        return {"is_running": False, "status_line": "Bot is not running."}
-@app.post("/api/save-proxies")
+            del user_bot_sessions[user_id]
+        return {"is_running": False, "status_line": "Bot is not running."}@app.post("/api/save-proxies")
 async def save_proxies(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required. Please log in again.")
