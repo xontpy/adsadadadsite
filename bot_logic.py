@@ -122,11 +122,11 @@ async def get_token_async(logger=console_logger, proxies_list=None):
                     token = r.json()["data"]["token"]
                     return token, proxy_url # Success
                 else:
-                    logger(f"Token attempt {i+1}/3 failed with status {r.status_code} using proxy {proxy_url}")
+                    logger(f"Token attempt {i+1}/3 failed with status {r.status_code} using a proxy.")
 
         except Exception as e:
             # Log the exception to understand the failure
-            logger(f"Token attempt {i+1}/3 failed with exception: {e} using proxy {proxy_url}")
+            logger(f"Token attempt {i+1}/3 failed with exception: {e} using a proxy.")
             
     return None, None # Failed after all retries
 
@@ -191,7 +191,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
         ws = None
         connection_attempts += 1
         try:
-            logger(f"[{index}] Attempt #{connection_attempts} to connect with proxy: {proxy_url}")
+            logger(f"[{index}] Attempt #{connection_attempts} to connect with a proxy.")
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
                 ws = await session.ws_connect(
                     f"wss://websockets.kick.com/viewer/v1/connect?token={token}",
