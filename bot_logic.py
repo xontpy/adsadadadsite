@@ -73,12 +73,12 @@ async def get_channel_id_async(logger, channel_name=None, proxies_list=None):
 
 async def get_token_async(logger, proxies_list=None):
     """Gets a viewer token asynchronously."""
-    for _ in range(3):
+    for _ in range(5):
         proxy_url = pick_proxy(logger, proxies_list)
         if not proxy_url:
             continue
         try:
-            async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=10) as session:
+            async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=15) as session:
                 await session.get("https://kick.com")
                 session.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 r = await session.get('https://websockets.kick.com/viewer/v1/token')
@@ -92,7 +92,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     """Fetches multiple tokens concurrently with staggering and retries."""
     logger(f"Fetching {count} tokens...")
     valid_tokens = []
-    CONCURRENCY_LIMIT = 500
+    CONCURRENCY_LIMIT = 250
     last_log_time = time.time()
 
     while len(valid_tokens) < count:
@@ -137,7 +137,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
         try:
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
-                ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=10)
+                ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=15)
                 
                 await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
                 connected_viewers_counter.add(index)
