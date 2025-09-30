@@ -207,19 +207,21 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     timeout=10
                 )
                 
+                # Send the initial handshake right after connecting
+                await ws.send_json({
+                    "type": "channel_handshake",
+                    "data": {"message": {"channelId": channel_id}}
+                })
+                logger(f"[{index}] Handshake sent. Now sending pings to keep alive.")
+
                 connected_viewers_counter.add(index)
-                counter = 0
+
+                # Now, enter the keep-alive loop, only sending pings
                 while not stop_event.is_set():
-                    counter += 1
-                    if counter % 2 == 0:
-                        await ws.send_json({"type": "ping"})
-                    else:
-                        await ws.send_json({
-                            "type": "channel_handshake",
-                            "data": {"message": {"channelId": channel_id}}
-                        })
+                    await ws.send_json({"type": "ping"})
                     
-                    delay = 11 + random.randint(2, 7)
+                    # Send a ping every 20-30 seconds
+                    delay = 20 + random.randint(0, 10)
                     await asyncio.sleep(delay)
 
         except (curl_cffi.errors.CurlError, asyncio.TimeoutError) as e:
