@@ -120,13 +120,10 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
     while not stop_event.is_set():
         if not token:
-            logger(f"[{index}] Attempting to get a new token...")
             new_token_data = await get_token_async(logger, proxies_list)
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
-                logger(f"[{index}] Successfully got new token.")
             else:
-                logger(f"[{index}] Failed to get a new token, retrying in 15s...")
                 await asyncio.sleep(15)
                 continue
 
@@ -141,15 +138,14 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     await asyncio.sleep(random.randint(20, 30))
                     await ws.send_json({"type": "ping"})
 
-        except Exception as e:
-            logger(f"[{index}] Connection error. Reconnecting with new token... Error: {e}")
+        except Exception:
+            pass
         finally:
             connected_viewers_counter.discard(index)
             token = None
             if not stop_event.is_set():
                 await asyncio.sleep(random.randint(5, 10))
 
-    logger(f"[{index}] Viewer task stopped.")
     connected_viewers_counter.discard(index)
 
 # --- Main Logic for Web Integration ---
