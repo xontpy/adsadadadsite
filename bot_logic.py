@@ -110,7 +110,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
         valid_tokens.extend(newly_fetched)
 
         current_time = time.time()
-        if current_time - last_log_time > 1 or len(valid_tokens) == count:
+        if current_time - last_log_time > 1.5 or len(valid_tokens) == count:
             logger(f"Fetching tokens: {len(valid_tokens)}/{count} successful.")
             last_log_time = current_time
 
@@ -184,6 +184,7 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
         logger("Halting: No tokens were fetched.\n")
         return
 
+    logger(f"Token fetch complete. Spawning {len(tokens_with_proxies)} viewers...")
     start_time = time.time()
     connected_viewers = set()
 
@@ -193,6 +194,8 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
         task = asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
         viewer_tasks.append(task)
         await asyncio.sleep(0.01)
+
+    logger("All viewers spawned. Monitoring status...")
 
     # --- Main monitoring loop ---
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
