@@ -190,10 +190,17 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
 
     # --- Spawn viewer tasks ---
     viewer_tasks = []
+    last_log_time = time.time()
+    num_tokens = len(tokens_with_proxies)
     for i, (token, proxy_url) in enumerate(tokens_with_proxies):
         task = asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
         viewer_tasks.append(task)
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.01)  # Small sleep to yield control
+
+        current_time = time.time()
+        if current_time - last_log_time > 1.5 or (i + 1) == num_tokens:
+            logger(f"Spawning viewers: {i + 1}/{num_tokens}...")
+            last_log_time = current_time
 
     logger("All viewers spawned. Monitoring status...")
 
