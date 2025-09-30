@@ -203,7 +203,7 @@ async def run_bot_async(channel, viewers, duration_seconds, stop_event, status_d
     logger("All viewer tasks have been terminated.")
     status_dict["running"] = False
 
-def run_viewbot_logic(channel, num_viewers, duration_seconds, stop_event, username, proxies_path, status_dict):
+def run_viewbot_logic(channel, num_viewers, duration_seconds, stop_event, proxies_path, status_dict):
     """Synchronous wrapper to be called by the multiprocessing Process."""
     try:
         asyncio.run(run_bot_async(channel, num_viewers, duration_seconds, stop_event, status_dict, proxies_path))
