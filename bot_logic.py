@@ -281,46 +281,45 @@ def run_viewbot_logic(channel_name, viewers, duration, stop_event, discord_user=
                 logger("Halting: No tokens were fetched.")
                 return
 
-            # 2. Start timer and status updater
+            # 2. Initialize state
             logger("Token acquisition finished.")
             start_time = time.time()
+            end_time = start_time + duration if duration else float('inf')
             connected_viewers = set()
             
-            async def status_updater_task():
-                """A task that counts down duration and prints status."""
-                if duration:
-                    end_time = start_time + duration
-                    while time.time() < end_time and not stop_event.is_set():
-                        remaining = end_time - time.time()
-                        mins, secs = divmod(remaining, 60)
-                        status_line = f"Time Left: {int(mins):02d}:{int(secs):02d} | Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)}"
-                        logger(status_line)
-                        await asyncio.sleep(5)
-                    
-                    if not stop_event.is_set():
-                        logger("Timer finished. Signaling all viewer tasks to stop.")
-                        stop_event.set()
-                else:  # Run indefinitely
-                    while not stop_event.is_set():
-                        status_line = f"Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)}"
-                        logger(status_line)
-                        await asyncio.sleep(5)
-
-            status_updater = asyncio.create_task(status_updater_task())
-
-            # 3. Spawn viewer tasks with pre-fetched tokens
-            logger(f"Sending {len(tokens_with_proxies)} viewers to {channel_name}.")
+            # 3. Spawn viewer tasks with a stagger
+            logger(f"Sending {len(tokens_with_proxies)} viewers to {channel_name}...")
             
-            viewer_tasks = [
-                asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
-                for i, (token, proxy_url) in enumerate(tokens_with_proxies)
-            ]
+            viewer_tasks = []
+            for i, (token, proxy_url) in enumerate(tokens_with_proxies):
+                task = asyncio.create_task(
+                    connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers)
+                )
+                viewer_tasks.append(task)
+                # Stagger the launch of each connection to avoid overwhelming the server/network
+                await asyncio.sleep(0.05) 
 
-            # Wait for the status updater to finish
-            await status_updater
-            logger("Timer finished or bot was stopped. Stopping viewer tasks...")
-            stop_event.set()
+            # 4. Main monitoring loop
+            logger("All viewer tasks have been launched. Monitoring session.")
+            while time.time() < end_time and not stop_event.is_set():
+                if duration:
+                    remaining = end_time - time.time()
+                    mins, secs = divmod(remaining, 60)
+                    status_line = f"Time Left: {int(mins):02d}:{int(secs):02d} | Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)}"
+                else: # Indefinite
+                    status_line = f"Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)}"
+                
+                logger(status_line)
+                await asyncio.sleep(5)
 
+            # 5. Shutdown sequence
+            if not stop_event.is_set():
+                logger("Timer finished. Signaling all viewer tasks to stop.")
+                stop_event.set()
+            else:
+                logger("Bot was stopped externally. Stopping viewer tasks...")
+
+            # Wait for all viewer tasks to gracefully shut down
             await asyncio.gather(*viewer_tasks, return_exceptions=True)
             logger("All viewer tasks have been terminated.")
 
