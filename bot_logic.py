@@ -92,7 +92,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     """Fetches multiple tokens concurrently with staggering and retries."""
     logger(f"Fetching {count} tokens...")
     valid_tokens = []
-    CONCURRENCY_LIMIT = 250
+    CONCURRENCY_LIMIT = 500
     last_log_time = time.time()
 
     while len(valid_tokens) < count:
@@ -190,17 +190,14 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
 
     # --- Spawn viewer tasks ---
     viewer_tasks = []
-    last_log_time = time.time()
     num_tokens = len(tokens_with_proxies)
     for i, (token, proxy_url) in enumerate(tokens_with_proxies):
         task = asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
         viewer_tasks.append(task)
-        await asyncio.sleep(0.01)  # Small sleep to yield control
-
-        current_time = time.time()
-        if current_time - last_log_time > 1.5 or (i + 1) == num_tokens:
+        # Log progress and yield control every 100 tasks to keep it fast but responsive.
+        if (i + 1) % 100 == 0 or (i + 1) == num_tokens:
             logger(f"Spawning viewers: {i + 1}/{num_tokens}...")
-            last_log_time = current_time
+            await asyncio.sleep(0)
 
     logger("All viewers spawned. Monitoring status...")
 
