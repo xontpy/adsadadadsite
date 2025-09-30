@@ -417,3 +417,229 @@ footer {
     color: var(--light-color);
     white-space: pre-wrap; /* Allows wrapping of long status lines */
 }
+
+/* --- Status Box / Toast Notification --- */
+.status-box {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 15px 25px;
+    border-radius: 8px;
+    background-color: var(--dark-color);
+    color: white;
+    z-index: 1000;
+    font-size: 1em;
+    display: none; /* Hidden by default */
+    border-left: 5px solid var(--primary-color);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.status-box.is-toast {
+    display: block;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.status-box.is-toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.status-box.success {
+    border-left-color: var(--success-color);
+}
+
+.status-box.error {
+    border-left-color: var(--danger-color);
+}
+
+.status-box.info {
+    border-left-color: var(--primary-color);
+}
+
+.tab-button {
+    flex: 1;
+    padding: 12px;
+    background: none;
+    border: none;
+    color: var(--font-color);
+    font-size: 1em;
+    cursor: pointer;
+    transition: background-color 0.3s, color 0.3s;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.tab-button.active {
+    background-color: var(--primary-color);
+    color: white;
+    font-weight: 600;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 25px;
+    margin-bottom: 30px;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.control-group label {
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--primary-color); /* Purple labels */
+}
+
+input[type="text"],
+textarea {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background-color: var(--input-background);
+    color: var(--font-color);
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+input[type="text"]:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 10px rgba(138, 43, 226, 0.5);
+}
+
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 8px;
+    background: var(--input-background);
+    border-radius: 5px;
+    outline: none;
+    border: 1px solid var(--border-color);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: var(--primary-color);
+    cursor: pointer;
+    border-radius: 50%;
+    border: 2px solid var(--dark-color);
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: var(--primary-color);
+    cursor: pointer;
+    border-radius: 50%;
+    border: 2px solid var(--dark-color);
+}
+
+.btn {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1.1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.btn-success {
+    background-color: var(--success-color);
+    color: white;
+}
+
+.btn-success:hover {
+    background-color: var(--success-color-hover);
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-color-hover);
+}
+
+footer {
+    margin-top: 30px;
+    text-align: center;
+}
+
+#status-box {
+    padding: 15px;
+    border-radius: 8px;
+    background-color: var(--input-background);
+    border: 1px solid var(--border-color);
+    color: var(--font-color);
+    transition: all 0.3s ease;
+}
+
+#status-box.success {
+    background-color: var(--success-color);
+    color: white;
+    border-color: var(--success-color-hover);
+}
+
+#status-box.error {
+    background-color: var(--danger-color);
+    color: white;
+    border-color: var(--danger-color-hover);
+}
+
+#status-box.info {
+    background-color: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color-hover);
+}
+
+#bot-status-container {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: var(--input-background);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+#bot-status-container h4 {
+    margin-bottom: 10px;
+    color: var(--primary-color);
+    font-size: 1.1em;
+}
+
+#bot-status-line {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+    color: var(--light-color);
+    white-space: pre-wrap; /* Allows wrapping of long status lines */
+}
