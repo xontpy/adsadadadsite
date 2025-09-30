@@ -191,8 +191,8 @@ async function fetchUserData(token) {
 
         const payload = {
             channel: channel,
-            views: num_viewers,
-            duration: duration_minutes
+            num_viewers: num_viewers,
+            duration_minutes: duration_minutes
         };
 
         try {
