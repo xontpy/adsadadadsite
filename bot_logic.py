@@ -135,7 +135,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
     # Set a much lower concurrency limit to avoid rate-limiting
-    CONCURRENCY_LIMIT = 250
+    CONCURRENCY_LIMIT = 50
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
