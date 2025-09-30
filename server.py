@@ -273,10 +273,13 @@ async def save_proxies(payload: ProxiesSaveRequest, user: dict = Depends(get_cur
 
     proxies = payload.proxies
     proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
+    temp_path = proxies_path + ".tmp"
 
     try:
-        with open(proxies_path, "w") as f:
+        with open(temp_path, "w") as f:
             f.write(proxies)
+        
+        os.replace(temp_path, proxies_path)
 
         # Stop all running bot instances to apply new proxies
         for user_id, session in list(user_bot_sessions.items()):
@@ -293,6 +296,8 @@ async def save_proxies(payload: ProxiesSaveRequest, user: dict = Depends(get_cur
 
         return {"message": "Proxies saved. All running bots have been stopped to apply changes."}
     except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
         raise HTTPException(status_code=500, detail=f'Failed to save proxies: {e}')
 
 @app.get("/api/get-proxies")
