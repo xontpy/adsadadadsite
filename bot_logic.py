@@ -1,10 +1,15 @@
 # --- Imports ---
 import asyncio
+import os
 import random
 import sys
 import time
 import traceback
 from curl_cffi import requests, AsyncSession
+
+# --- Global Cache for Proxies ---
+CACHED_PROXIES = None
+LAST_MODIFIED_TIME = 0
 
 # --- Core Bot Logic ---
 
@@ -23,23 +28,44 @@ def bot_logger(status_updater, message):
         sys.stdout.flush()
 
 async def load_proxies_async(logger, file_path="proxies.txt"):
-    """Loads proxies from the specified file asynchronously."""
+    """Loads proxies from the specified file asynchronously, with caching."""
+    global CACHED_PROXIES, LAST_MODIFIED_TIME
+    
     try:
+        current_mtime = os.path.getmtime(file_path)
+        
+        if current_mtime == LAST_MODIFIED_TIME and CACHED_PROXIES is not None:
+            logger(f"Using {len(CACHED_PROXIES)} cached proxies.\n")
+            return CACHED_PROXIES
+
+        logger("Proxy file has changed or cache is empty. Reloading proxies...")
         loop = asyncio.get_event_loop()
         proxies = await loop.run_in_executor(
-            None,  # Uses the default executor (a ThreadPoolExecutor)
+            None,
             lambda: list(set(line.strip() for line in open(file_path, "r") if line.strip()))
         )
+        
         if not proxies:
-            logger(f"Error: '{file_path}' is empty.\n")
+            logger(f"Error: '{file_path}' is empty. Cache invalidated.\n")
+            CACHED_PROXIES = None
+            LAST_MODIFIED_TIME = 0
             return None
-        logger(f"Loaded {len(proxies)} unique proxies from: {file_path}\n")
+            
+        logger(f"Loaded and cached {len(proxies)} unique proxies from: {file_path}\n")
+        CACHED_PROXIES = proxies
+        LAST_MODIFIED_TIME = current_mtime
         return proxies
+        
     except FileNotFoundError:
-        logger(f"Error: Proxies file not found: {file_path}\n")
+        logger(f"Error: Proxies file not found: {file_path}. Cache invalidated.\n")
+        CACHED_PROXIES = None
+        LAST_MODIFIED_TIME = 0
         return None
     except Exception as e:
-        logger(f"Proxy load error: {e}\n")
+        logger(f"An error occurred during proxy loading: {e}\n")
+        if CACHED_PROXIES is not None:
+            logger(f"Returning {len(CACHED_PROXIES)} stale cached proxies due to error.\n")
+            return CACHED_PROXIES
         return None
 
 def pick_proxy(logger, proxies_list=None):
