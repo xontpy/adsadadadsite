@@ -131,10 +131,7 @@ async def get_token_async(logger=console_logger, proxies_list=None):
 # --- Main connection logic (used by both GUI and Discord bot) ---
 
 async def get_tokens_in_bulk_async(logger, proxies_list, count):
-    """
-    Fetches multiple tokens concurrently in batches, retrying until the desired count is met.
-    Includes staggering to prevent rate-limiting at high concurrency.
-    """
+    """Fetches multiple tokens concurrently in batches, retrying until the desired count is met."""
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
     # Set a much higher concurrency limit for extreme speed
@@ -146,15 +143,8 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
         # Determine the size of the next batch
         batch_size = min(needed, CONCURRENCY_LIMIT)
         
-        logger(f"Requesting a new batch of {batch_size} tokens (staggered)...")
-        
-        # Stagger the launch of token-fetching tasks to avoid overwhelming the server
-        tasks = []
-        for _ in range(batch_size):
-            task = asyncio.create_task(get_token_async(logger, proxies_list))
-            tasks.append(task)
-            await asyncio.sleep(0.01) # 10ms delay between each task launch
-
+        logger(f"Requesting a new batch of {batch_size} tokens...")
+        tasks = [get_token_async(logger, proxies_list) for _ in range(batch_size)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Filter for successful results and extract them
@@ -166,13 +156,8 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
         logger(f"Batch summary: {len(newly_fetched)} successful, {failed_count} failed. Total tokens: {len(valid_tokens)}/{count}.")
 
         if len(valid_tokens) < count:
-            # If there were failures, wait longer before the next batch
-            if failed_count > 0:
-                logger("Pausing for 5s before next batch due to failures...")
-                await asyncio.sleep(5)
-            else:
-                # Brief pause before the next batch
-                await asyncio.sleep(2)
+            # Brief pause before the next batch to avoid getting rate-limited
+            await asyncio.sleep(2)
 
     logger(f"Successfully fetched all {count} tokens.")
     return valid_tokens
@@ -200,28 +185,26 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
         ws = None
         try:
-            # CRITICAL FIX: Impersonate the WebSocket connection and remove manual User-Agent
+            # Reverted to user's requested logic, but keeping impersonate for better connection success
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
                 ws = await session.ws_connect(
                     f"wss://websockets.kick.com/viewer/v1/connect?token={token}",
                     timeout=10
                 )
                 
-                # Send the initial handshake right after connecting
-                await ws.send_json({
-                    "type": "channel_handshake",
-                    "data": {"message": {"channelId": channel_id}}
-                })
-                logger(f"[{index}] Handshake sent. Now sending pings to keep alive.")
-
                 connected_viewers_counter.add(index)
-
-                # Now, enter the keep-alive loop, only sending pings
+                counter = 0
                 while not stop_event.is_set():
-                    await ws.send_json({"type": "ping"})
+                    counter += 1
+                    if counter % 2 == 0:
+                        await ws.send_json({"type": "ping"})
+                    else:
+                        await ws.send_json({
+                            "type": "channel_handshake",
+                            "data": {"message": {"channelId": channel_id}}
+                        })
                     
-                    # Send a ping every 20-30 seconds
-                    delay = 20 + random.randint(0, 10)
+                    delay = 11 + random.randint(2, 7)
                     await asyncio.sleep(delay)
 
         except (curl_cffi.errors.CurlError, asyncio.TimeoutError) as e:
