@@ -72,15 +72,31 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Invalid Discord token.")
     user_json = user_r.json()
 
+    print("--- Debugging User Roles ---")
+    print(f"User: {user_json.get('username')} ({user_json.get('id')})")
+    print(f"Checking Guild ID: {DISCORD_GUILD_ID}")
+    
     guild_member_r = requests.get(f'https://discord.com/api/users/@me/guilds/{DISCORD_GUILD_ID}/member', headers=user_headers)
-    guild_roles = guild_member_r.json().get('roles', []) if guild_member_r.status_code == 200 else []
+    
+    if guild_member_r.status_code == 200:
+        guild_roles = guild_member_r.json().get('roles', [])
+        print(f"Roles found in guild: {guild_roles}")
+    else:
+        guild_roles = []
+        print(f"Could not fetch member details from guild. Status: {guild_member_r.status_code}, Response: {guild_member_r.text}")
+
     user_json['roles'] = guild_roles
+    
+    print(f"Owner Role ID from .env: {OWNER_ROLE_ID}")
     
     default_permission = ROLE_PERMISSIONS.get("default")
     user_level = default_permission["level"]
     max_views = default_permission["max_views"]
 
-    if OWNER_ROLE_ID and OWNER_ROLE_ID in guild_roles:
+    is_owner = OWNER_ROLE_ID in guild_roles if OWNER_ROLE_ID else False
+    print(f"Is user owner? {is_owner}")
+
+    if is_owner:
         permission = ROLE_PERMISSIONS.get(OWNER_ROLE_ID, {})
         user_level = permission.get("level", user_level)
         max_views = permission.get("max_views", max_views)
@@ -91,7 +107,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         
     user_json['level'] = user_level
     user_json['max_views'] = max_views
-    user_json['is_owner'] = OWNER_ROLE_ID in guild_roles if OWNER_ROLE_ID else False
+    user_json['is_owner'] = is_owner
+    
+    print("--------------------------")
     
     return user_json
 
