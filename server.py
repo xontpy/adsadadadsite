@@ -60,41 +60,43 @@ manager = multiprocessing.Manager()
 # Each value will be a dictionary: {'pid': process.pid, 'status': bot_status}
 user_bot_sessions = {}
 
+# --- User Data Cache ---
+user_cache = {}
+CACHE_DURATION = 300  # Cache user data for 5 minutes
+
 # --- Authentication Dependency ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     if not token:
         return None
+
+    # Check cache first
+    if token in user_cache and time.time() - user_cache[token].get('timestamp', 0) < CACHE_DURATION:
+        return user_cache[token]['data']
+
     user_headers = {"Authorization": f"Bearer {token}"}
     user_r = requests.get('https://discord.com/api/users/@me', headers=user_headers)
     if user_r.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid Discord token.")
     user_json = user_r.json()
 
-    print("--- Debugging User Roles ---")
-    print(f"User: {user_json.get('username')} ({user_json.get('id')})")
-    print(f"Checking Guild ID: {DISCORD_GUILD_ID}")
-    
     guild_member_r = requests.get(f'https://discord.com/api/users/@me/guilds/{DISCORD_GUILD_ID}/member', headers=user_headers)
     
     if guild_member_r.status_code == 200:
         guild_roles = guild_member_r.json().get('roles', [])
-        print(f"Roles found in guild: {guild_roles}")
     else:
         guild_roles = []
-        print(f"Could not fetch member details from guild. Status: {guild_member_r.status_code}, Response: {guild_member_r.text}")
+        # Log the error but don't crash the request. Proceed with default permissions.
+        print(f"Could not fetch member details from guild for user {user_json.get('id')}. Status: {guild_member_r.status_code}, Response: {guild_member_r.text}")
 
     user_json['roles'] = guild_roles
-    
-    print(f"Owner Role ID from .env: {OWNER_ROLE_ID}")
     
     default_permission = ROLE_PERMISSIONS.get("default")
     user_level = default_permission["level"]
     max_views = default_permission["max_views"]
 
     is_owner = OWNER_ROLE_ID in guild_roles if OWNER_ROLE_ID else False
-    print(f"Is user owner? {is_owner}")
 
     if is_owner:
         permission = ROLE_PERMISSIONS.get(OWNER_ROLE_ID, {})
@@ -109,7 +111,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     user_json['max_views'] = max_views
     user_json['is_owner'] = is_owner
     
-    print("--------------------------")
+    # Cache the processed data
+    user_cache[token] = {
+        'timestamp': time.time(),
+        'data': user_json
+    }
     
     return user_json
 
