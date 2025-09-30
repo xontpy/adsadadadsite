@@ -206,21 +206,20 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     f"wss://websockets.kick.com/viewer/v1/connect?token={token}",
                     timeout=10
                 )
+
+                # Send the handshake message once upon connection
+                await ws.send_json({
+                    "type": "channel_handshake",
+                    "data": {"message": {"channelId": channel_id}}
+                })
                 
                 connected_viewers_counter.add(index)
-                counter = 0
+                
+                # Loop to send 'ping' messages periodically to keep the connection alive
                 while not stop_event.is_set():
-                    counter += 1
-                    if counter % 2 == 0:
-                        await ws.send_json({"type": "ping"})
-                    else:
-                        await ws.send_json({
-                            "type": "channel_handshake",
-                            "data": {"message": {"channelId": channel_id}}
-                        })
-                    
-                    delay = 11 + random.randint(2, 7)
-                    await asyncio.sleep(delay)
+                    # Wait for a random interval between 20 and 30 seconds
+                    await asyncio.sleep(random.randint(20, 30))
+                    await ws.send_json({"type": "ping"})
 
         except (curl_cffi.errors.CurlError, asyncio.TimeoutError) as e:
             logger(f"[{index}] Connection error: {e}. Reconnecting with new token...")
@@ -310,7 +309,7 @@ def run_viewbot_logic(channel_name, viewers, duration, stop_event, discord_user=
                 )
                 viewer_tasks.append(task)
                 # Stagger the launch of each connection to avoid overwhelming the server/network
-                await asyncio.sleep(0.1) 
+                await asyncio.sleep(0.01) 
 
             # 4. Main monitoring loop
             logger("All viewer tasks have been launched. Monitoring session.")
