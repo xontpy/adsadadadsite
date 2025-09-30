@@ -160,6 +160,26 @@ async function fetchUserData(token) {
         }
     });
 
+    function updateStartButton(text, state) {
+        const startButton = document.getElementById('start-bot-button');
+        const buttonText = startButton.querySelector('span');
+        const icon = startButton.querySelector('img');
+
+        if (text) {
+            buttonText.textContent = text;
+        }
+
+        if (state === 'running') {
+            icon.src = 'assets/icons/stop-view-icon.svg';
+            startButton.classList.remove('btn-success');
+            startButton.classList.add('btn-danger');
+        } else if (state === 'stopped') {
+            icon.src = 'assets/icons/start-view-icon.svg';
+            startButton.classList.remove('btn-danger');
+            startButton.classList.add('btn-success');
+        }
+    }
+
     async function startBot() {
         const channel = channelInput.value;
         const viewers = viewersSlider.value;
@@ -185,7 +205,7 @@ async function fetchUserData(token) {
         }
         
         const startButton = document.getElementById('start-bot-button');
-        startButton.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Starting...`;
+        startButton.querySelector('span').textContent = 'Starting...';
         startButton.disabled = true;
 
 
@@ -217,15 +237,15 @@ async function fetchUserData(token) {
         } catch (error) {
             showStatus(`Error starting bot: ${error.message}`, 'error');
             isBotRunning = false;
+            updateStartButton('Start Views', 'stopped');
         } finally {
             startButton.disabled = false;
-            // pollStatus will update the button
         }
     }
 
     async function stopBot() {
         const startButton = document.getElementById('start-bot-button');
-        startButton.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Stopping...`;
+        startButton.querySelector('span').textContent = 'Stopping...';
         startButton.disabled = true;
 
         const token = localStorage.getItem('accessToken');
@@ -249,7 +269,7 @@ async function fetchUserData(token) {
             showStatus(`Error stopping bot: ${error.message}`, 'error');
         } finally {
             startButton.disabled = false;
-            // pollStatus will update the button
+            updateStartButton('Start Views', 'stopped');
         }
     }
 
@@ -270,7 +290,6 @@ async function fetchUserData(token) {
                     }
                 });
                 if (!response.ok) {
-                    // If the server returns an error (e.g., 401 Unauthorized), stop polling.
                     if (response.status === 401) {
                         showStatus('Session expired. Please log in again.', 'error');
                         localStorage.removeItem('accessToken');
@@ -281,26 +300,20 @@ async function fetchUserData(token) {
                 }
                 
                 const status = await response.json();
-                const startButton = document.getElementById('start-bot-button');
-
                 isBotRunning = status.is_bot_running;
 
-                // Do not update button if it's in a transient state (Starting.../Stopping...)
-                if (startButton.disabled) {
-                    // It will be enabled and updated when the start/stop action finishes
-                } else if (isBotRunning) {
-                    startButton.innerHTML = `<img src="assets/icons/stop-view-icon.svg" alt="" style="width: 16px; height: 16px; margin-bottom: 2px;"> Stop Views`;
-                    startButton.classList.remove('btn-success');
-                    startButton.classList.add('btn-danger');
-                } else {
-                    startButton.innerHTML = `<img src="assets/icons/start-view-icon.svg" alt="" style="width: 16px; height: 16px; margin-bottom: 2px;"> Start Views`;
-                    startButton.classList.remove('btn-danger');
-                    startButton.classList.add('btn-success');
+                const startButton = document.getElementById('start-bot-button');
+                if (!startButton.disabled) {
+                    if (isBotRunning) {
+                        updateStartButton('Stop Views', 'running');
+                    } else {
+                        updateStartButton('Start Views', 'stopped');
+                    }
                 }
 
                 if (status.is_bot_running && status.status_message) {
                     botStatusContainer.style.display = 'block';
-                    botStatusLine.innerHTML = status.status_message; // Use innerHTML to render styled spans
+                    botStatusLine.innerHTML = status.status_message;
                 } else {
                     botStatusContainer.style.display = 'none';
                 }
@@ -308,7 +321,7 @@ async function fetchUserData(token) {
             } catch (error) {
                 console.error('Polling error:', error.message);
             }
-        }, 2000); // Poll every 2 seconds
+        }, 2000);
     }
 
     // --- Proxies Actions ---
