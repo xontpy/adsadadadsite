@@ -71,73 +71,89 @@ async def load_proxies_async(logger):
             return CACHED_PROXIES
         return None
 
-def pick_proxy(logger, proxies_list=None):
-    """Picks a random proxy from the provided list."""
-    if not proxies_list:
-        return None
-    proxy = random.choice(proxies_list)
-    try:
-        ip, port, user, pwd = proxy.split(":")
-        return f"http://{user}:{pwd}@{ip}:{port}"
-    except ValueError:
-        logger(f"Bad proxy format: {proxy}, (use ip:port:user:pass)\n")
-        return None
-    except Exception as e:
-        logger(f"Proxy error: {proxy}, {e}\n")
-        return None
-
 async def get_channel_id_async(logger, channel_name, proxies_list):
-    """Gets the channel ID using synchronous requests in a thread to avoid blocking."""
+    """
+    Gets the channel ID by trying all available proxies in a random order.
+    Uses synchronous requests in a thread to avoid blocking asyncio loop.
+    """
     def sync_get_channel_id():
-        for i in range(5):
-            proxy_url = pick_proxy(logger, proxies_list)
-            if not proxy_url:
-                time.sleep(0.1)
+        if not proxies_list:
+            logger("Channel ID Error: No proxies available in the list.\n")
+            return None
+
+        shuffled_proxies = random.sample(proxies_list, len(proxies_list))
+        
+        for i, proxy_str in enumerate(shuffled_proxies):
+            try:
+                ip, port, user, pwd = proxy_str.split(":")
+                proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
+            except ValueError:
+                # This proxy is malformed, log it and skip.
+                if i < 5: # Log first few malformed proxies to avoid spam
+                    logger(f"Bad proxy format: {proxy_str}, skipping.\n")
                 continue
+
             try:
                 s = requests.Session(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url}, timeout=10)
                 r = s.get(f"https://kick.com/api/v2/channels/{channel_name}")
                 r.raise_for_status()
                 data = r.json()
                 if "id" in data:
+                    logger(f"Successfully found channel ID using proxy {ip} on attempt {i+1}.\n")
                     return data["id"]
                 else:
-                    logger(f"Channel ID attempt {i+1}/5 failed: 'id' not in response.")
+                    # This case is unlikely if status is 200, but good to have.
+                    if i < 5:
+                        logger(f"Channel ID attempt {i+1}/{len(shuffled_proxies)} failed: 'id' not in response from proxy {ip}.\n")
             except Exception as e:
                 error_type = type(e).__name__
-                logger(f"Channel ID attempt {i+1}/5 failed ({error_type})...")
+                if i < 5: # Log first 5 errors to avoid spamming the UI
+                    logger(f"Channel ID attempt {i+1}/{len(shuffled_proxies)} with proxy {ip} failed ({error_type})...\n")
             
-            if i < 4:
-                time.sleep(1)
-        return None
+        return None # All proxies were tried and failed.
 
     loop = asyncio.get_event_loop()
     channel_id = await loop.run_in_executor(None, sync_get_channel_id)
     if not channel_id:
-        logger("Fatal: Failed to get channel ID after 5 attempts.")
+        logger("Fatal: Failed to get channel ID after trying all available proxies.\n")
     return channel_id
 
 
 async def get_token_async(logger, proxies_list):
-    """Gets a viewer token using synchronous requests in a thread."""
+    """
+    Gets a viewer token by trying all available proxies in a random order.
+    Uses synchronous requests in a thread.
+    """
     def sync_get_token():
-        for i in range(5):
-            proxy_url = pick_proxy(logger, proxies_list)
-            if not proxy_url:
-                time.sleep(0.1)
+        if not proxies_list:
+            logger("Token Error: No proxies available in the list.\n")
+            return None, None
+            
+        shuffled_proxies = random.sample(proxies_list, len(proxies_list))
+
+        for i, proxy_str in enumerate(shuffled_proxies):
+            try:
+                ip, port, user, pwd = proxy_str.split(":")
+                proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
+            except ValueError:
+                if i < 5:
+                    logger(f"Bad proxy format: {proxy_str}, skipping.\n")
                 continue
+            
             try:
                 s = requests.Session(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url}, timeout=10)
                 s.get("https://kick.com") # Warm-up
                 s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 r = s.get('https://websockets.kick.com/viewer/v1/token')
                 r.raise_for_status()
+                logger(f"Token found successfully on attempt {i+1}.\n")
                 return r.json()["data"]["token"], proxy_url
             except Exception as e:
                 error_type = type(e).__name__
-                logger(f"Token attempt {i+1}/5 failed ({error_type})...")
-                time.sleep(1)
-        return None, None
+                if i < 5:
+                    logger(f"Token attempt {i+1}/{len(shuffled_proxies)} with proxy {ip} failed ({error_type})...\n")
+        
+        return None, None # All proxies failed
 
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, sync_get_token)
@@ -232,8 +248,34 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
     ]
 
     # --- Main monitoring loop ---
+    last_proxy_reload_time = time.time()
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
     while time.time() < end_time and not stop_event.is_set():
+        # --- Proxy Health Check & Reload ---
+        # Reload proxies every 10 minutes if they seem to be failing.
+        if time.time() - last_proxy_reload_time > 600:
+            logger("Performing periodic proxy health check...")
+            # A simple health check: if view count is 0, try reloading proxies.
+            if len(connected_viewers) == 0 and viewers > 0:
+                logger("View count is 0, attempting to reload proxies to get a fresh list.")
+                new_proxies = await load_proxies_async(logger)
+                if new_proxies and new_proxies != proxies:
+                    proxies = new_proxies
+                    # To apply the new proxies, we must restart the viewer tasks.
+                    logger("Restarting all viewer tasks to apply new proxies...")
+                    for task in viewer_tasks:
+                        task.cancel()
+                    await asyncio.gather(*viewer_tasks, return_exceptions=True)
+                    
+                    viewer_tasks = [
+                        asyncio.create_task(connection_handler_async(logger, channel_id, i, stop_event, proxies, connected_viewers))
+                        for i in range(viewers)
+                    ]
+                    logger(f"{len(viewer_tasks)} viewer tasks have been restarted.")
+                else:
+                    logger("Proxy reload did not yield a new list. Continuing with current proxies.")
+            last_proxy_reload_time = time.time()
+
         if duration_seconds > 0:
             remaining = end_time - time.time()
             mins, secs = divmod(remaining, 60)
