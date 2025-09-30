@@ -182,7 +182,7 @@ async def start_bot(request: Request, user: dict = Depends(get_current_user)):
 
         process = multiprocessing.Process(
             target=run_viewbot_logic, 
-            args=(channel, num_viewers, duration_seconds, stop_event, username, proxies_path, status_dict)
+            args=(channel, num_viewers, duration_seconds, stop_event, proxies_path, status_dict)
         )
         process.start()
 
