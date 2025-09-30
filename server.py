@@ -229,8 +229,10 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
         return {"is_running": False, "status_line": "Bot is not running."}
 @app.post("/api/save-proxies")
 async def save_proxies(request: Request, user: dict = Depends(get_current_user)):
-    if not user or not user.get('is_owner'):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required. Please log in again.")
+    if not user.get('is_owner'):
+        raise HTTPException(status_code=403, detail="Permission denied. You do not have owner privileges.")
 
     body = await request.json()
     proxies = body.get("proxies")
@@ -259,8 +261,10 @@ async def save_proxies(request: Request, user: dict = Depends(get_current_user))
 
 @app.get("/api/get-proxies")
 async def get_proxies(user: dict = Depends(get_current_user)):
-    if not user or not user.get('is_owner'):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required. Please log in again.")
+    if not user.get('is_owner'):
+        raise HTTPException(status_code=403, detail="Permission denied. You do not have owner privileges.")
     proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
     try:
         with open(proxies_path, "r") as f:
