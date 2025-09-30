@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let statusInterval; // To hold the interval ID for polling
     let isBotRunning = false;
+    let botCrashed = false;
 
     // --- Event Listeners for Sliders ---
     if (viewersSlider && viewersCount) {
@@ -230,6 +231,7 @@ async function fetchUserData(token) {
             if (response.ok) {
                 showStatus(data.message || 'Bot started successfully!', 'success');
                 isBotRunning = true;
+                botCrashed = false;
                 pollStatus(); // Start polling immediately
             } else {
                 throw new Error(data.detail || 'Failed to start bot.');
@@ -260,6 +262,7 @@ async function fetchUserData(token) {
             if (response.ok) {
                 showStatus(data.message || 'Bot stopped successfully.', 'success');
                 isBotRunning = false;
+                botCrashed = false;
                 botStatusContainer.style.display = 'none';
                 botStatusLine.textContent = '';
             } else {
@@ -300,6 +303,10 @@ async function fetchUserData(token) {
                 }
                 
                 const status = await response.json();
+
+                if (isBotRunning && !status.is_running) {
+                    botCrashed = true;
+                }
                 isBotRunning = status.is_running;
 
                 const startButton = document.getElementById('start-bot-button');
@@ -311,9 +318,14 @@ async function fetchUserData(token) {
                     }
                 }
 
-                if (status.is_running && status.status_line) {
+                if (isBotRunning && status.status_line) {
                     botStatusContainer.style.display = 'block';
+                    botStatusLine.style.color = ''; // reset color
                     botStatusLine.innerHTML = status.status_line;
+                } else if (botCrashed) {
+                    botStatusContainer.style.display = 'block';
+                    botStatusLine.style.color = '#dc3545'; // a red color for error
+                    botStatusLine.innerHTML = 'Bot stopped unexpectedly. Please restart.';
                 } else {
                     botStatusContainer.style.display = 'none';
                 }
