@@ -320,6 +320,7 @@ async function fetchUserData(token) {
 
             } catch (error) {
                 console.error('Polling error:', error.message);
+                showStatus('Connection to server lost. Retrying...', 'error');
             }
         }, 2000);
     }
