@@ -158,9 +158,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
             
             await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
             
-            # Wait for the server's handshake confirmation before counting the viewer
-            await asyncio.wait_for(ws.recv_json(), timeout=10)
-            
+            # Optimistically count the viewer. The loop below will quickly detect dead connections.
             connected_viewers_counter.add(index)
             
             # Main loop: actively listen for messages and send pings on timeout
@@ -173,7 +171,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     await ws.send_json({"type": "ping"})
 
         except (asyncio.TimeoutError, ConnectionError, requests.errors.WsError) as e:
-            logger(f"Viewer {index} handshake/connection failed ({type(e).__name__}). Reconnecting...")
+            logger(f"Viewer {index} connection failed ({type(e).__name__}). Reconnecting...")
         except Exception as e:
             error_type = type(e).__name__
             logger(f"Viewer {index} disconnected ({error_type}). Reconnecting...")
