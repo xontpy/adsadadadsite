@@ -184,15 +184,16 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                 logger(f"[{index}] Successfully got new token.")
                 connection_attempts = 0 # Reset attempts on new token
             else:
-                # If getting a token fails, wait a random interval before the next attempt
-                retry_delay = random.randint(15, 45)
-                logger(f"[{index}] Failed to get a new token, retrying in {retry_delay}s...")
-                await asyncio.sleep(retry_delay)
+                # If getting a token fails, apply exponential backoff
+                connection_attempts += 1
+                backoff_delay = min(60, (2 ** connection_attempts)) + random.uniform(0, 5)
+                logger(f"[{index}] Failed to get a new token. Retrying in {backoff_delay:.2f}s...")
+                await asyncio.sleep(backoff_delay)
                 continue
 
         ws = None
-        connection_attempts += 1
         try:
+            connection_attempts += 1
             logger(f"[{index}] Attempt #{connection_attempts} to connect with a proxy.")
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
                 ws = await session.ws_connect(
@@ -226,17 +227,17 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
             if ws:
                 await ws.close()
             
-            # Only discard if it was ever added
             if index in connected_viewers_counter:
                 logger(f"[{index}] Disconnecting. Removing from viewer count.")
                 connected_viewers_counter.discard(index)
             
-            # Force a new token on any kind of disconnect to ensure freshness
             token = None 
             
             if not stop_event.is_set():
-                # Wait a longer, more random time before reconnecting to spread out the load
-                await asyncio.sleep(random.randint(10, 30))
+                # Exponential backoff with jitter
+                backoff_delay = min(60, (2 ** connection_attempts)) + random.uniform(0, 5)
+                logger(f"[{index}] Waiting for {backoff_delay:.2f} seconds before reconnecting.")
+                await asyncio.sleep(backoff_delay)
 
     logger(f"[{index}] Viewer task stopped.")
     if index in connected_viewers_counter:
