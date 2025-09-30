@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const botStatusLine = document.getElementById('bot-status-line');
 
     let statusInterval; // To hold the interval ID for polling
+    let isBotRunning = false;
 
     // --- Event Listeners for Sliders ---
     if (viewersSlider && viewersCount) {
@@ -146,22 +147,45 @@ async function fetchUserData(token) {
             if (proxiesTab) proxiesTab.style.display = 'none';
         }
     }
+
+    function updateStartButton() {
+    const startButton = document.getElementById('start-bot-button');
+    const buttonText = startButton.querySelector('.btn-text');
+    const buttonIcon = startButton.querySelector('i');
+
+    if (isBotRunning) {
+        buttonIcon.classList.remove('fa-play');
+        buttonIcon.classList.add('fa-stop');
+        buttonText.textContent = 'Stop Views';
+        startButton.classList.remove('btn-success');
+        startButton.classList.add('btn-danger');
+    } else {
+        buttonIcon.classList.remove('fa-stop');
+        buttonIcon.classList.add('fa-play');
+        buttonText.textContent = 'Start Views';
+        startButton.classList.remove('btn-danger');
+        startButton.classList.add('btn-success');
+    }
+}
     // --- Bot Actions ---
     controlPanel.addEventListener('click', (event) => {
-        if (event.target.id === 'start-bot-button') {
-            startBot();
-        } else if (event.target.id === 'stop-bot-button') {
-            stopBot();
+        const startButton = document.getElementById('start-bot-button');
+        if (event.target === startButton || startButton.contains(event.target)) {
+            if (isBotRunning) {
+                stopBot();
+            } else {
+                startBot();
+            }
         }
     });
 
-    function startBot() {
+    async function startBot() {
         const channel = channelInput.value;
         const viewers = viewersSlider.value;
         const duration = durationSlider.value;
 
         if (!channel) {
-            alert('Please enter a Kick channel name.');
+            showStatus('Please enter a Kick channel name.', 'error');
             return;
         }
 
@@ -175,9 +199,19 @@ async function fetchUserData(token) {
         const duration_minutes = parseInt(duration);
 
         if (isNaN(duration_minutes) || duration_minutes <= 0) {
-            alert(`Invalid duration value detected: ${duration}. Please ensure you select a positive number of minutes.`);
+            showStatus(`Invalid duration value detected: ${duration}. Please ensure you select a positive number of minutes.`, 'error');
             return;
         }
+        
+        const startButton = document.getElementById('start-bot-button');
+        const buttonText = startButton.querySelector('.btn-text');
+        const buttonIcon = startButton.querySelector('i');
+
+        buttonIcon.classList.remove('fa-play');
+        buttonIcon.classList.add('fa-spinner', 'fa-spin');
+        buttonText.textContent = 'Starting...';
+        startButton.disabled = true;
+
 
         const payload = {
             channel: channel,
@@ -185,111 +219,125 @@ async function fetchUserData(token) {
             duration_minutes: duration_minutes
         };
 
-        fetch(`${API_BASE_URL}/api/start`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(payload),
-        })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(err => { throw err; });
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/start`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showStatus(data.message || 'Bot started successfully!', 'success');
+                isBotRunning = true;
+                updateStartButton();
+                pollStatus(); // Start polling immediately
+            } else {
+                throw new Error(data.detail || 'Failed to start bot.');
             }
-            return response.json();
-        })
-        .then(data => {
-            if (data.message) {
-                showStatus('Views have been sent. Please wait for them to arrive.', 'success', true);
-                // The UI will update via the polling mechanism
-            }
-        })
-        .catch(error => {
-            console.error('Error starting bot:', error);
-            showStatus(error.detail || 'Failed to communicate with the server.', 'error');
-        });
+        } catch (error) {
+            showStatus(`Error starting bot: ${error.message}`, 'error');
+            isBotRunning = false;
+            updateStartButton();
+        } finally {
+            startButton.disabled = false;
+            // The icon and text are managed by updateStartButton, so no need to reset here
+        }
     }
 
-    function stopBot() {
-        const token = localStorage.getItem('accessToken');
-        if (!token) {
-            showStatus('You are not logged in.', 'error');
-            return;
-        }
+    async function stopBot() {
+        const startButton = document.getElementById('start-bot-button');
+        const buttonText = startButton.querySelector('.btn-text');
+        const buttonIcon = startButton.querySelector('i');
 
-        fetch(`${API_BASE_URL}/api/stop`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            },
-        })
-        .then(response => response.json())
-        .then(data => {
-            showStatus('Bot stopped successfully.', 'success');
-            // The UI will update via the polling mechanism
-        })
-        .catch(error => {
-            console.error('Error stopping bot:', error);
-            showStatus('Failed to stop the bot.', 'error');
-        });
+        buttonIcon.classList.remove('fa-play', 'fa-stop');
+        buttonIcon.classList.add('fa-spinner', 'fa-spin');
+        buttonText.textContent = 'Stopping...';
+        startButton.disabled = true;
+
+        const token = localStorage.getItem('accessToken');
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/stop`, {
+                method: 'POST',
+                 headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            const data = await response.json();
+            if (response.ok) {
+                showStatus(data.message || 'Bot stopped successfully.', 'success');
+                isBotRunning = false;
+                updateStartButton();
+                botStatusContainer.style.display = 'none';
+                botStatusLine.textContent = '';
+            } else {
+                throw new Error(data.detail || 'Failed to stop bot.');
+            }
+        } catch (error) {
+            showStatus(`Error stopping bot: ${error.message}`, 'error');
+        } finally {
+            startButton.disabled = false;
+            // updateStartButton will be called on the next poll, or we can call it directly
+            if (!isBotRunning) {
+                 updateStartButton();
+            }
+        }
     }
 
     function pollStatus() {
         if (statusInterval) {
             clearInterval(statusInterval);
         }
-
         statusInterval = setInterval(async () => {
             const token = localStorage.getItem('accessToken');
             if (!token) {
-                // No need to poll if not logged in
-                if (botStatusContainer) botStatusContainer.style.display = 'none';
+                clearInterval(statusInterval);
                 return;
             }
-
             try {
                 const response = await fetch(`${API_BASE_URL}/api/status`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                     headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
                 });
-
-                if (response.ok) {
-                    const status = await response.json();
-                    const startStopButton = document.getElementById('start-bot-button') || document.getElementById('stop-bot-button');
-
-                    if (status.is_running) {
-                        if (botStatusContainer) botStatusContainer.style.display = 'block';
-                        if (botStatusLine) botStatusLine.textContent = status.status_line;
-                        if (startStopButton) {
-                            startStopButton.textContent = 'Stop Views';
-                            startStopButton.classList.remove('btn-success');
-                            startStopButton.classList.add('btn-danger');
-                            startStopButton.id = 'stop-bot-button';
-                        }
-                    } else {
-                        if (botStatusContainer) botStatusContainer.style.display = 'none';
-                        if (botStatusLine) botStatusLine.textContent = '';
-                        if (startStopButton) {
-                            startStopButton.textContent = 'Start Views';
-                            startStopButton.classList.remove('btn-danger');
-                            startStopButton.classList.add('btn-success');
-                            startStopButton.id = 'start-bot-button';
-                        }
-                    }
-                } else {
-                    // Handle non-OK responses if necessary, e.g., session expired
+                if (!response.ok) {
+                    // If the server returns an error (e.g., 401 Unauthorized), stop polling.
                     if (response.status === 401) {
-                        // Could add logic to handle session expiry during polling
+                        showStatus('Session expired. Please log in again.', 'error');
+                        localStorage.removeItem('accessToken');
+                        showLoginState();
+                        clearInterval(statusInterval);
                     }
+                    throw new Error('Failed to fetch status.');
                 }
+                
+                const status = await response.json();
+
+                isBotRunning = status.is_bot_running;
+                updateStartButton(); // Update button based on the latest status
+
+                if (status.is_bot_running && status.status_message) {
+                    botStatusContainer.style.display = 'block';
+                    botStatusLine.innerHTML = status.status_message; // Use innerHTML to render styled spans
+                } else {
+                    botStatusContainer.style.display = 'none';
+                }
+
             } catch (error) {
-                console.error('Error polling status:', error);
-                // Optionally hide status on error
-                if (botStatusContainer) botStatusContainer.style.display = 'none';
+                console.error('Polling error:', error.message);
+                // Don't show status error on every poll failure, could be noisy
+                // showStatus('Could not retrieve bot status.', 'error');
+                // If the error indicates a real problem (like server down), then stop.
+                // For now, we just log it and continue trying.
             }
         }, 2000); // Poll every 2 seconds
     }
 
+    // --- Proxies Actions ---
     if (saveProxiesButton) {
         saveProxiesButton.addEventListener('click', async () => {
             const proxies = proxiesTextarea.value;
