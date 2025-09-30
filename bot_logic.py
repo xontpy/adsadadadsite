@@ -78,7 +78,7 @@ async def get_channel_id_async(logger, channel_name, proxies_list):
             logger(f"Channel ID attempt {i+1}/5 failed ({error_type})...")
         
         if i < 4: # Don't sleep on the last attempt
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.75)
 
     logger("Fatal: Failed to get channel ID after 5 attempts.")
     return None
@@ -101,7 +101,7 @@ async def get_token_async(logger, proxies_list):
         except Exception as e:
             error_type = type(e).__name__
             logger(f"Token attempt {i+1}/5 failed ({error_type})...")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.75)
     return None, None
 
 
