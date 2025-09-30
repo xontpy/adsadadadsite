@@ -418,6 +418,25 @@ footer {
     white-space: pre-wrap; /* Allows wrapping of long status lines */
 }
 
+/* --- Proxies Tab --- */
+#proxies-content {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+#proxies-textarea {
+    min-height: 200px; /* Adjust as needed */
+    resize: vertical; /* Allow vertical resizing */
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+}
+
+.proxies-footer {
+    display: flex;
+    justify-content: flex-end;
+}
+
 /* --- Status Box / Toast Notification --- */
 .status-box {
     position: fixed;
