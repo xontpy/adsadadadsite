@@ -135,7 +135,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
     # Set a much higher concurrency limit for extreme speed
-    CONCURRENCY_LIMIT = 500
+    CONCURRENCY_LIMIT = 100
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
@@ -333,3 +333,4 @@ def run_viewbot_logic(channel_name, viewers, duration, stop_event, discord_user=
         if status_dict is not None:
             status_dict["running"] = False
             status_dict["status_line"] = completion_message
+
