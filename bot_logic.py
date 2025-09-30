@@ -12,11 +12,16 @@ def status_updater(status_dict, message):
         status_dict["status_line"] = message
 
 # --- Core Bot Logic (from main.py, adapted and corrected) ---
-def load_proxies_sync(logger, file_path="proxies.txt"):
-    """Loads proxies from the specified file."""
+async def load_proxies_async(logger, file_path="proxies.txt"):
+    """Loads proxies from the specified file asynchronously."""
     try:
-        with open(file_path, "r") as f:
-            proxies = list(set(line.strip() for line in f if line.strip()))
+        # Asynchronous file reading is not directly available in standard Python,
+        # so we use a thread to avoid blocking the event loop.
+        loop = asyncio.get_event_loop()
+        proxies = await loop.run_in_executor(
+            None,  # Uses the default executor (a ThreadPoolExecutor)
+            lambda: list(set(line.strip() for line in open(file_path, "r") if line.strip()))
+        )
         if not proxies:
             logger(f"Error: '{file_path}' is empty.")
             return None
@@ -44,8 +49,8 @@ def pick_proxy(logger, proxies_list=None):
         logger(f"Proxy error: {proxy}, {e}")
         return None
 
-def get_channel_id_sync(logger, channel_name=None, proxies_list=None):
-    """Gets the channel ID using synchronous requests."""
+async def get_channel_id_async(logger, channel_name=None, proxies_list=None):
+    """Gets the channel ID using asynchronous requests."""
     for i in range(5):
         proxy_url = pick_proxy(logger, proxies_list)
         if not proxy_url:
@@ -55,16 +60,16 @@ def get_channel_id_sync(logger, channel_name=None, proxies_list=None):
         logger(f"Channel ID attempt {i+1}/5 using proxy: {masked_proxy}")
 
         try:
-            s = requests.Session(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url})
-            r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=15)
-            if r.status_code == 200:
-                logger("Successfully got channel ID.")
-                return r.json().get("id")
-            else:
-                logger(f"Channel ID attempt {i+1}/5 failed with status: {r.status_code}...")
+            async with AsyncSession(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url}, timeout=15) as s:
+                r = await s.get(f"https://kick.com/api/v2/channels/{channel_name}")
+                if r.status_code == 200:
+                    logger("Successfully got channel ID.")
+                    return r.json().get("id")
+                else:
+                    logger(f"Channel ID attempt {i+1}/5 failed with status: {r.status_code}...")
         except Exception as e:
             logger(f"Channel ID attempt {i+1}/5 failed with error: {e}...")
-        time.sleep(1)
+        await asyncio.sleep(1)
     logger("Failed to get channel ID after multiple retries.")
     return None
 
@@ -158,13 +163,13 @@ async def run_bot_async(channel, viewers, duration_seconds, stop_event, status_d
     logger = lambda msg: status_updater(status_dict, msg)
     
     logger("Bot process started. Loading proxies...")
-    proxies = load_proxies_sync(logger, file_path=proxies_path)
+    proxies = await load_proxies_async(logger, file_path=proxies_path)
     if not proxies:
         logger("Halting: No proxies loaded.")
         return
 
     logger(f"Getting channel ID for '{channel}'...")
-    channel_id = get_channel_id_sync(logger, channel, proxies)
+    channel_id = await get_channel_id_async(logger, channel, proxies)
     if not channel_id:
         logger(f"Halting: Could not get channel ID for '{channel}'.")
         return
