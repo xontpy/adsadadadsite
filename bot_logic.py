@@ -51,7 +51,7 @@ def pick_proxy(logger=console_logger, proxies_list=None):
 def get_channel_id_sync(logger=console_logger, channel_name=None, proxies_list=None):
     """Gets the channel ID using synchronous requests (SYNC)."""
     for _ in range(5):
-        s = requests.Session(impersonate="firefox135")
+        s = requests.Session(impersonate="chrome120")
         proxy_dict, _ = pick_proxy(logger, proxies_list)
         if not proxy_dict:
             continue
@@ -71,7 +71,7 @@ def get_channel_id_sync(logger=console_logger, channel_name=None, proxies_list=N
 def get_token_sync(logger=console_logger, proxies_list=None):
     """Gets a viewer token using synchronous requests (SYNC)."""
     for _ in range(5):
-        s = requests.Session(impersonate="firefox135")
+        s = requests.Session(impersonate="chrome120")
         proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
         if not proxy_dict:
             continue
@@ -108,7 +108,7 @@ async def get_token_async(logger=console_logger, proxies_list=None):
 
         try:
             # Use AsyncSession for non-blocking I/O
-            async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=10) as session:
+            async with AsyncSession(impersonate="chrome120", proxy=proxy_url, timeout=10) as session:
                 # The first request warms up the session and gets cookies
                 await session.get("https://kick.com")
                 
@@ -135,7 +135,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
     # Set a much higher concurrency limit for extreme speed
-    CONCURRENCY_LIMIT = 100
+    CONCURRENCY_LIMIT = 500
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
@@ -185,10 +185,11 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
         ws = None
         try:
-            async with AsyncSession() as session:
+            # CRITICAL FIX: Impersonate the WebSocket connection and remove manual User-Agent
+            async with AsyncSession(impersonate="chrome120", proxy=proxy_url) as session:
                 ws = await session.ws_connect(
                     f"wss://websockets.kick.com/viewer/v1/connect?token={token}",
-                    proxy=proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10
+                    timeout=10
                 )
                 
                 connected_viewers_counter.add(index)
@@ -333,4 +334,3 @@ def run_viewbot_logic(channel_name, viewers, duration, stop_event, discord_user=
         if status_dict is not None:
             status_dict["running"] = False
             status_dict["status_line"] = completion_message
-
