@@ -53,15 +53,11 @@ ROLE_PERMISSIONS = {
     "default": {"max_views": 100, "level": "user"},
 }
 
-# --- Bot State ---
-bot_process = None
-bot_stop_event = None
-
-# --- Shared Status for UI ---
+# --- Bot State Management ---
 manager = multiprocessing.Manager()
-bot_status = manager.dict()
-bot_status["running"] = False
-bot_status["status_line"] = ""
+# A dictionary to hold the bot state for each user, keyed by user_id
+# Each value will be a dictionary: {'process': bot_process, 'stop_event': bot_stop_event, 'status': bot_status}
+user_bot_sessions = manager.dict()
 
 # --- Authentication Dependency ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -139,10 +135,10 @@ async def get_me(user: dict = Depends(get_current_user)):
 async def start_bot(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required.")
-    
-    global bot_process, bot_stop_event
-    if bot_process and bot_process.is_alive():
-        raise HTTPException(status_code=400, detail="Bot is already running")
+
+    user_id = user['id']
+    if user_id in user_bot_sessions and user_bot_sessions[user_id]['process'].is_alive():
+        raise HTTPException(status_code=400, detail="You already have a bot running.")
 
     data = await request.json()
     channel = data.get("channel")
@@ -156,83 +152,96 @@ async def start_bot(request: Request, user: dict = Depends(get_current_user)):
 
     try:
         duration_seconds = duration_minutes * 60
-        bot_stop_event = multiprocessing.Event()
-        bot_status["running"] = True
-        bot_status["status_line"] = "Initializing..."
+        stop_event = multiprocessing.Event()
+        status_dict = manager.dict({"running": True, "status_line": "Initializing..."})
 
-        bot_process = multiprocessing.Process(
+        process = multiprocessing.Process(
             target=run_viewbot_logic, 
-            args=(channel, num_viewers, duration_seconds, bot_stop_event, username, proxies_path, bot_status)
+            args=(channel, num_viewers, duration_seconds, stop_event, username, proxies_path, status_dict)
         )
-        bot_process.start()
+        process.start()
+
+        # Store the process, stop event, and status dict for the user
+        user_bot_sessions[user_id] = {
+            'process': process,
+            'stop_event': stop_event,
+            'status': status_dict
+        }
+
         return {"message": "Bot started successfully"}
     except Exception as e:
-        bot_status["running"] = False
-        bot_status["status_line"] = f"Error: {e}"
+        # Clean up if something goes wrong
+        if user_id in user_bot_sessions:
+            del user_bot_sessions[user_id]
         raise HTTPException(status_code=500, detail=f"Server error: {e}")
 
 @app.post("/api/stop")
 async def stop_bot(user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required.")
+
+    user_id = user['id']
+    session = user_bot_sessions.get(user_id)
+
+    if session and session['process'].is_alive():
+        session['stop_event'].set()
+        session['process'].join(timeout=10)
+        if session['process'].is_alive():
+            session['process'].terminate()
+            session['process'].join()
         
-    global bot_process, bot_stop_event
-    if bot_process and bot_process.is_alive():
-        if bot_stop_event:
-            bot_stop_event.set()
-        bot_process.join(timeout=10)
-        if bot_process.is_alive():
-            bot_process.terminate()
-            bot_process.join()
-        bot_process = None
-        bot_stop_event = None
-        bot_status["running"] = False
-        bot_status["status_line"] = "Bot stopped."
+        # Clean up the session
+        del user_bot_sessions[user_id]
+        
         return {"message": "Bot stopped successfully"}
     else:
-        # If the bot is not running, ensure the status is correct
-        bot_status["running"] = False
-        bot_status["status_line"] = "Bot is not running."
-        raise HTTPException(status_code=400, detail="Bot is not running")
+        # If the bot is not running, ensure the status is correct and clean up any stale session
+        if user_id in user_bot_sessions:
+            del user_bot_sessions[user_id]
+        raise HTTPException(status_code=400, detail="Bot is not running or has already stopped.")
 
 @app.get("/api/status")
-async def get_bot_status():
-    status_dict = dict(bot_status)
-    # Ensure the key 'is_running' is what the frontend expects
-    status_dict['is_running'] = status_dict.get('running', False)
-    return status_dict
+async def get_bot_status(user: dict = Depends(get_current_user)):
+    if not user:
+        # For logged-out users, show a default non-running status
+        return {"is_running": False, "status_line": "Not logged in."}
+
+    user_id = user['id']
+    session = user_bot_sessions.get(user_id)
+
+    if session and session['process'].is_alive():
+        status_dict = dict(session['status'])
+        status_dict['is_running'] = status_dict.get('running', False)
+        return status_dict
+    else:
+        # If the session doesn't exist or the process is dead, it's not running
+        if user_id in user_bot_sessions:
+            del user_bot_sessions[user_id] # Clean up stale session
+        return {"is_running": False, "status_line": "Bot is not running."}
 
 @app.post("/api/save-proxies")
 async def save_proxies(request: Request, user: dict = Depends(get_current_user)):
     if not user or not user.get('is_owner'):
         raise HTTPException(status_code=403, detail="Unauthorized")
-    
-    global bot_process, bot_stop_event
+
     body = await request.json()
     proxies = body.get("proxies")
     proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
-    
+
     try:
         with open(proxies_path, "w") as f:
             f.write(proxies)
-        
-        message = "Proxies saved successfully."
-        # If bot is running, stop it to apply new proxies on next run
-        if bot_process and bot_process.is_alive():
-            if bot_stop_event:
-                bot_stop_event.set()
-            bot_process.join(timeout=15)
-            if bot_process.is_alive():
-                bot_process.terminate()
-                bot_process.join()
-            
-            bot_process = None
-            bot_stop_event = None
-            bot_status["running"] = False
-            bot_status["status_line"] = "Bot stopped to apply new proxies. Please restart."
-            message = "Proxies saved. Bot stopped to apply changes, please restart."
 
-        return {"message": message}
+        # Stop all running bot instances to apply new proxies
+        for user_id, session in list(user_bot_sessions.items()):
+            if session and session['process'].is_alive():
+                session['stop_event'].set()
+                session['process'].join(timeout=5) # Give it a moment to stop gracefully
+                if session['process'].is_alive():
+                    session['process'].terminate()
+                del user_bot_sessions[user_id]
+
+        return {"message": "Proxies saved. All running bots have been stopped to apply changes."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to save proxies: {e}')
 
