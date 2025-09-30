@@ -300,7 +300,7 @@ async function fetchUserData(token) {
                 }
                 
                 const status = await response.json();
-                isBotRunning = status.is_bot_running;
+                isBotRunning = status.is_running;
 
                 const startButton = document.getElementById('start-bot-button');
                 if (!startButton.disabled) {
@@ -311,9 +311,9 @@ async function fetchUserData(token) {
                     }
                 }
 
-                if (status.is_bot_running && status.status_message) {
+                if (status.is_running && status.status_line) {
                     botStatusContainer.style.display = 'block';
-                    botStatusLine.innerHTML = status.status_message;
+                    botStatusLine.innerHTML = status.status_line;
                 } else {
                     botStatusContainer.style.display = 'none';
                 }
