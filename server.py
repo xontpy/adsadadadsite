@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request
 # --- Correctly Import the main bot function ---
-from script import run_viewbot_logic
+from bot_logic import run_viewbot_logic
 
 
 # --- Pydantic Models ---
@@ -296,6 +296,23 @@ async def save_proxies(request: Request, user: dict = Depends(get_current_user))
         return {"message": f"Proxies saved successfully to {proxies_path}."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to save proxies: {e}')
+
+@app.get("/api/get-proxies")
+async def get_proxies(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
+    
+    try:
+        with open(proxies_path, "r") as f:
+            proxies_content = f.read()
+        return {"proxies": proxies_content}
+    except FileNotFoundError:
+        # If the file doesn't exist, return an empty string
+        return {"proxies": ""}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to read proxies: {e}')
 
 
 @app.get("/api/status")
