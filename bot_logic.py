@@ -170,7 +170,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
             if not stop_event.is_set():
                 await asyncio.sleep(random.randint(1, 5)) # Faster reconnect
 
-    logger(f"[{index}] Viewer task stopped.\n")
+    logger(f"[{index}] Viewer task stopped.")
     connected_viewers_counter.discard(index)
 
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
@@ -224,11 +224,21 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
     # --- Spawn viewer tasks ---
     viewer_tasks = []
     num_tokens = len(tokens_with_proxies)
-    logger(f"Spawning {num_tokens} viewer tasks...")
+    logger(f"Spawning {num_tokens} viewer tasks in batches to ensure stability...")
+
+    BATCH_SIZE = 50
+    INTER_BATCH_DELAY = 5  # seconds
+    INTRA_BATCH_DELAY = 0.05 # seconds
+
     for i, (token, proxy_url) in enumerate(tokens_with_proxies):
         task = asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
         viewer_tasks.append(task)
-        await asyncio.sleep(0.01) # Stagger task creation slightly
+        
+        await asyncio.sleep(INTRA_BATCH_DELAY)
+
+        if (i + 1) % BATCH_SIZE == 0 and (i + 1) < num_tokens:
+            logger(f"Spawned batch of {BATCH_SIZE}. Pausing for {INTER_BATCH_DELAY}s...")
+            await asyncio.sleep(INTER_BATCH_DELAY)
 
     logger("All viewer tasks spawned. Waiting for them to complete...")
 
