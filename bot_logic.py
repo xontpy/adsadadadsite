@@ -92,33 +92,34 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     """Fetches multiple tokens concurrently with staggering and retries."""
     logger(f"Fetching {count} tokens...")
     valid_tokens = []
-    CONCURRENCY_LIMIT = 500
-    last_log_time = time.time()
+    CONCURRENCY_LIMIT = 250  # Reduced for stability
+    max_attempts = 5
+    attempts = 0
 
-    while len(valid_tokens) < count:
+    while len(valid_tokens) < count and attempts < max_attempts:
         needed = count - len(valid_tokens)
         batch_size = min(needed, CONCURRENCY_LIMIT)
         
-        tasks = []
-        for _ in range(batch_size):
-            task = asyncio.create_task(get_token_async(logger, proxies_list))
-            tasks.append(task)
-            await asyncio.sleep(0.01)
+        tasks = [asyncio.create_task(get_token_async(logger, proxies_list)) for _ in range(batch_size)]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         newly_fetched = [res for res in results if res and isinstance(res, tuple) and res[0]]
         valid_tokens.extend(newly_fetched)
 
-        current_time = time.time()
-        if current_time - last_log_time > 1.5 or len(valid_tokens) == count:
-            logger(f"Fetching tokens: {len(valid_tokens)}/{count} successful.")
-            last_log_time = current_time
+        logger(f"Fetching tokens: {len(valid_tokens)}/{count} successful.")
 
-        if len(valid_tokens) < count and not newly_fetched:
-             logger(f"Token fetch stalled. Retrying in 5s...")
-             await asyncio.sleep(5)
-        elif len(valid_tokens) < count:
-            await asyncio.sleep(1)
+        if len(valid_tokens) < count:
+            attempts += 1
+            if not newly_fetched and attempts < max_attempts:
+                logger(f"Token fetch stalled. Retrying in 5s... (Attempt {attempts}/{max_attempts})")
+                await asyncio.sleep(5)
+            elif attempts < max_attempts:
+                await asyncio.sleep(1)
+
+    if len(valid_tokens) < count and len(valid_tokens) > 0:
+        logger(f"Warning: Could only fetch {len(valid_tokens)} out of {count} requested tokens. Proceeding...")
+    elif len(valid_tokens) == 0:
+        logger("Error: Failed to fetch any tokens after multiple attempts.")
 
     return valid_tokens
 
@@ -137,7 +138,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
         try:
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
-                ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=10)
+                ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=15) # Increased timeout
                 
                 await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
                 connected_viewers_counter.add(index)
@@ -146,13 +147,14 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     await asyncio.sleep(random.randint(20, 30))
                     await ws.send_json({"type": "ping"})
 
-        except Exception:
-            pass
+        except Exception as e:
+            error_type = type(e).__name__
+            logger(f"Viewer {index} disconnected ({error_type}). Reconnecting...")
         finally:
             connected_viewers_counter.discard(index)
             token = None  # Force a new token on any disconnect
             if not stop_event.is_set():
-                await asyncio.sleep(random.randint(5, 10))
+                await asyncio.sleep(random.randint(1, 5)) # Faster reconnect
 
     logger(f"[{index}] Viewer task stopped.\n")
     connected_viewers_counter.discard(index)
@@ -176,8 +178,18 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
     if not proxies:
         return
 
-    channel_id = await get_channel_id_async(logger, channel, proxies)
+    # --- Resilient setup for Channel ID ---
+    channel_id = None
+    for i in range(3):
+        channel_id = await get_channel_id_async(logger, channel, proxies)
+        if channel_id:
+            break
+        logger(f"Could not get channel ID. Retrying in 3s... ({i+1}/3)")
+        if not stop_event.is_set():
+            await asyncio.sleep(3)
+
     if not channel_id:
+        logger("Failed to get channel ID after multiple retries. Halting.")
         return
 
     tokens_with_proxies = await get_tokens_in_bulk_async(logger, proxies, viewers)
