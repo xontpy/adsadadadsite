@@ -138,7 +138,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
     # Set a much lower concurrency limit to avoid rate-limiting
-    CONCURRENCY_LIMIT = 20
+    CONCURRENCY_LIMIT = 45
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
@@ -169,7 +169,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
 async def connection_handler_async(logger, channel_id, index, initial_token, initial_proxy_url, stop_event, proxies_list, connected_viewers_counter):
     """
     A persistent handler for a single viewer connection.
-    It uses an initial token and retries with it, fetching a new one only after multiple failures.
+    It aggressively switches proxies on failure and fetches new tokens when necessary.
     """
     token = initial_token
     proxy_url = initial_proxy_url
@@ -177,26 +177,26 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
     token_retries = 0
 
     while not stop_event.is_set():
-        if not token:
-            logger(f"[{index}] No token. Attempting to get a new one...")
+        if not token or not proxy_url:
+            logger(f"[{index}] No token or proxy. Attempting to get a new pair...")
             new_token_data = await get_token_async(logger, proxies_list)
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
-                logger(f"[{index}] Successfully got new token.")
+                logger(f"[{index}] Successfully got new token and proxy.")
                 connection_attempts = 0 # Reset attempts on new token
                 token_retries = 0
             else:
                 # If getting a token fails, apply exponential backoff
                 connection_attempts += 1
                 backoff_delay = min(60, (2 ** connection_attempts)) + random.uniform(0, 5)
-                logger(f"[{index}] Failed to get a new token. Retrying in {backoff_delay:.2f}s...")
+                logger(f"[{index}] Failed to get a new token/proxy. Retrying in {backoff_delay:.2f}s...")
                 await asyncio.sleep(backoff_delay)
                 continue
 
         ws = None
         try:
             connection_attempts += 1
-            logger(f"[{index}] Attempt #{connection_attempts} to connect with a proxy.")
+            logger(f"[{index}] Attempt #{connection_attempts} to connect.")
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
                 ws = await session.ws_connect(
                     f"wss://websockets.kick.com/viewer/v1/connect?token={token}",
@@ -236,10 +236,23 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                 logger(f"[{index}] Disconnecting. Removing from viewer count.")
                 connected_viewers_counter.discard(index)
             
-            # After 3 failed attempts with the same token, get a new one.
+            # On ANY failure, immediately get a new proxy for the next attempt.
+            # The token might still be valid.
+            if proxies_list:
+                new_proxy_str = random.choice(proxies_list)
+                try:
+                    ip, port, user, pwd = new_proxy_str.split(":")
+                    proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
+                    logger(f"[{index}] Switched to a new proxy for next attempt.")
+                except ValueError:
+                    logger(f"[{index}] Bad proxy format in list. Will fetch new token/proxy pair.")
+                    proxy_url = None # Force a full refresh
+            
+            # After 3 failed attempts, assume the token is also bad.
             if token_retries >= 3:
-                logger(f"[{index}] Failed to connect 3 times with the same token. Fetching a new one.")
+                logger(f"[{index}] Failed to connect 3 times. Fetching a new token as well.")
                 token = None
+                token_retries = 0 # Reset counter
             
             if not stop_event.is_set():
                 # Exponential backoff with jitter
