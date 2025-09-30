@@ -2,6 +2,7 @@
 import os
 import asyncio
 import multiprocessing
+import psutil
 import time
 import requests
 import sys
@@ -56,8 +57,8 @@ ROLE_PERMISSIONS = {
 # --- Bot State Management ---
 manager = multiprocessing.Manager()
 # A dictionary to hold the bot state for each user, keyed by user_id
-# Each value will be a dictionary: {'process': bot_process, 'stop_event': bot_stop_event, 'status': bot_status}
-user_bot_sessions = manager.dict()
+# Each value will be a dictionary: {'pid': process.pid, 'status': bot_status}
+user_bot_sessions = {}
 
 # --- Authentication Dependency ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -137,7 +138,7 @@ async def start_bot(request: Request, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=401, detail="Authentication required.")
 
     user_id = user['id']
-    if user_id in user_bot_sessions and user_bot_sessions[user_id]['process'].is_alive():
+    if user_id in user_bot_sessions and psutil.pid_exists(user_bot_sessions[user_id]['pid']):
         raise HTTPException(status_code=400, detail="You already have a bot running.")
 
     data = await request.json()
@@ -161,10 +162,10 @@ async def start_bot(request: Request, user: dict = Depends(get_current_user)):
         )
         process.start()
 
-        # Store the process, stop event, and status dict for the user
+        # Store the PID and status dict for the user
         user_bot_sessions[user_id] = {
-            'process': process,
-            'stop_event': stop_event,
+            'pid': process.pid,
+            'stop_event': stop_event, # Still need this to signal the process
             'status': status_dict
         }
 
@@ -183,15 +184,25 @@ async def stop_bot(user: dict = Depends(get_current_user)):
     user_id = user['id']
     session = user_bot_sessions.get(user_id)
 
-    if session and session['process'].is_alive():
-        session['stop_event'].set()
-        session['process'].join(timeout=10)
-        if session['process'].is_alive():
-            session['process'].terminate()
-            session['process'].join()
-        
-        # Clean up the session
-        del user_bot_sessions[user_id]
+    if session and psutil.pid_exists(session['pid']):
+        try:
+            proc = psutil.Process(session['pid'])
+            # Signal the process to stop gracefully
+            session['stop_event'].set()
+            proc.join(timeout=10) # Wait for graceful shutdown
+            
+            # Forcefully terminate if it's still alive
+            if proc.is_running():
+                proc.terminate()
+                proc.join()
+
+        except psutil.NoSuchProcess:
+            # The process already died, which is fine
+            pass
+        finally:
+            # Clean up the session
+            if user_id in user_bot_sessions:
+                del user_bot_sessions[user_id]
         
         return {"message": "Bot stopped successfully"}
     else:
@@ -203,22 +214,19 @@ async def stop_bot(user: dict = Depends(get_current_user)):
 @app.get("/api/status")
 async def get_bot_status(user: dict = Depends(get_current_user)):
     if not user:
-        # For logged-out users, show a default non-running status
         return {"is_running": False, "status_line": "Not logged in."}
 
     user_id = user['id']
     session = user_bot_sessions.get(user_id)
 
-    if session and session['process'].is_alive():
+    if session and psutil.pid_exists(session['pid']):
         status_dict = dict(session['status'])
-        status_dict['is_running'] = status_dict.get('running', False)
+        status_dict['is_running'] = True
         return status_dict
     else:
-        # If the session doesn't exist or the process is dead, it's not running
         if user_id in user_bot_sessions:
             del user_bot_sessions[user_id] # Clean up stale session
         return {"is_running": False, "status_line": "Bot is not running."}
-
 @app.post("/api/save-proxies")
 async def save_proxies(request: Request, user: dict = Depends(get_current_user)):
     if not user or not user.get('is_owner'):
@@ -234,12 +242,16 @@ async def save_proxies(request: Request, user: dict = Depends(get_current_user))
 
         # Stop all running bot instances to apply new proxies
         for user_id, session in list(user_bot_sessions.items()):
-            if session and session['process'].is_alive():
-                session['stop_event'].set()
-                session['process'].join(timeout=5) # Give it a moment to stop gracefully
-                if session['process'].is_alive():
-                    session['process'].terminate()
-                del user_bot_sessions[user_id]
+            if psutil.pid_exists(session['pid']):
+                try:
+                    proc = psutil.Process(session['pid'])
+                    session['stop_event'].set()
+                    proc.join(timeout=5)
+                    if proc.is_running():
+                        proc.terminate()
+                except psutil.NoSuchProcess:
+                    pass # Already gone
+            del user_bot_sessions[user_id]
 
         return {"message": "Proxies saved. All running bots have been stopped to apply changes."}
     except Exception as e:
