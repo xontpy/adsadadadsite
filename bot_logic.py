@@ -135,12 +135,12 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                 await asyncio.sleep(15)
                 continue
 
+        connected_viewers_counter.add(index) # Assume connection attempt
         try:
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
                 ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=15)
                 
                 await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
-                connected_viewers_counter.add(index)
                 
                 while not stop_event.is_set():
                     await asyncio.sleep(random.randint(20, 30))
