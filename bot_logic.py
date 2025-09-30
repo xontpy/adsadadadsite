@@ -121,12 +121,9 @@ async def get_token_async(logger=console_logger, proxies_list=None):
                 if r.status_code == 200:
                     token = r.json()["data"]["token"]
                     return token, proxy_url # Success
-                else:
-                    logger(f"Token attempt {i+1}/3 failed with status {r.status_code} using a proxy.")
-
-        except Exception as e:
-            # Log the exception to understand the failure
-            logger(f"Token attempt {i+1}/3 failed with exception: {e} using a proxy.")
+        except Exception:
+            # Silently ignore errors and retry with a new proxy
+            pass
             
     return None, None # Failed after all retries
 
@@ -138,7 +135,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
     # Set a much lower concurrency limit to avoid rate-limiting
-    CONCURRENCY_LIMIT = 45
+    CONCURRENCY_LIMIT = 250
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
