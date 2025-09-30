@@ -128,13 +128,10 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
     while not stop_event.is_set():
         if not token:
-            logger(f"[{index}] Attempting to get a new token...\n")
             new_token_data = await get_token_async(logger, proxies_list)
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
-                logger(f"[{index}] Successfully got new token.\n")
             else:
-                logger(f"[{index}] Failed to get a new token, retrying in 15s...\n")
                 await asyncio.sleep(15)
                 continue
 
@@ -149,8 +146,8 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     await asyncio.sleep(random.randint(20, 30))
                     await ws.send_json({"type": "ping"})
 
-        except Exception as e:
-            logger(f"[{index}] Connection error. Reconnecting with new token... Error: {e}\n")
+        except Exception:
+            pass
         finally:
             connected_viewers_counter.discard(index)
             token = None  # Force a new token on any disconnect
@@ -188,7 +185,6 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
         logger("Halting: No tokens were fetched.\n")
         return
 
-    logger(f"Token fetch complete. Spawning {len(tokens_with_proxies)} viewers...")
     start_time = time.time()
     connected_viewers = set()
 
@@ -200,10 +196,7 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
         viewer_tasks.append(task)
         # Log progress and yield control every 100 tasks to keep it fast but responsive.
         if (i + 1) % 100 == 0 or (i + 1) == num_tokens:
-            logger(f"Spawning viewers: {i + 1}/{num_tokens}...")
             await asyncio.sleep(0)
-
-    logger("All viewers spawned. Monitoring status...")
 
     # --- Main monitoring loop ---
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
