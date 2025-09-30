@@ -128,37 +128,36 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
     while not stop_event.is_set():
         if not token:
+            logger(f"[{index}] Attempting to get a new token...\n")
             new_token_data = await get_token_async(logger, proxies_list)
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
+                logger(f"[{index}] Successfully got new token.\n")
             else:
+                logger(f"[{index}] Failed to get a new token, retrying in 15s...\n")
                 await asyncio.sleep(15)
                 continue
 
-        connected_viewers_counter.add(index) # Assume connection attempt
         try:
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
-                ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=15)
+                ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=10)
                 
                 await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
+                connected_viewers_counter.add(index)
                 
                 while not stop_event.is_set():
                     await asyncio.sleep(random.randint(20, 30))
                     await ws.send_json({"type": "ping"})
 
-        except Exception:
-            # Connection lost, will be handled by the finally block
-            pass
+        except Exception as e:
+            logger(f"[{index}] Connection error. Reconnecting with new token... Error: {e}\n")
         finally:
-            # This block executes whether the connection succeeded and then broke,
-            # or if it failed to connect in the first place.
             connected_viewers_counter.discard(index)
-            token = None  # Force re-acquisition of a new token
+            token = None  # Force a new token on any disconnect
             if not stop_event.is_set():
-                # Wait a short, random time before trying to reconnect to avoid overwhelming the server
-                await asyncio.sleep(random.randint(1, 5))
+                await asyncio.sleep(random.randint(5, 10))
 
-    # Final cleanup when the entire bot process is stopping
+    logger(f"[{index}] Viewer task stopped.\n")
     connected_viewers_counter.discard(index)
 
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
