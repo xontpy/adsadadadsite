@@ -116,7 +116,6 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
             else:
                 await asyncio.sleep(2)
 
-    logger(f"Successfully fetched all {count} tokens.")
     return valid_tokens
 
 async def connection_handler_async(logger, channel_id, index, initial_token, initial_proxy_url, stop_event, proxies_list, connected_viewers_counter):
