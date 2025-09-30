@@ -3,35 +3,38 @@ import asyncio
 import random
 import sys
 import time
+import traceback
 from curl_cffi import requests, AsyncSession
 
-# --- Bot Status Logger ---
-def status_updater(status_dict, message):
-    """Updates the shared status dictionary for the web UI."""
-    if status_dict:
-        status_dict["status_line"] = message
+# --- Core Bot Logic ---
 
-# --- Core Bot Logic (from main.py, adapted and corrected) ---
+def bot_logger(status_updater, message):
+    """A simple logger that sends messages to the web UI."""
+    if status_updater:
+        status_updater.put(message)
+    else:
+        # Fallback to console if no updater is provided
+        sys.stdout.write(f"\r[{time.strftime('%H:%M:%S')}] {message}")
+        sys.stdout.flush()
+
 async def load_proxies_async(logger, file_path="proxies.txt"):
     """Loads proxies from the specified file asynchronously."""
     try:
-        # Asynchronous file reading is not directly available in standard Python,
-        # so we use a thread to avoid blocking the event loop.
         loop = asyncio.get_event_loop()
         proxies = await loop.run_in_executor(
             None,  # Uses the default executor (a ThreadPoolExecutor)
             lambda: list(set(line.strip() for line in open(file_path, "r") if line.strip()))
         )
         if not proxies:
-            logger(f"Error: '{file_path}' is empty.")
+            logger(f"Error: '{file_path}' is empty.\n")
             return None
-        logger(f"Loaded {len(proxies)} unique proxies from: {file_path}")
+        logger(f"Loaded {len(proxies)} unique proxies from: {file_path}\n")
         return proxies
     except FileNotFoundError:
-        logger(f"Error: Proxies file not found: {file_path}")
+        logger(f"Error: Proxies file not found: {file_path}\n")
         return None
     except Exception as e:
-        logger(f"Proxy load error: {e}")
+        logger(f"Proxy load error: {e}\n")
         return None
 
 def pick_proxy(logger, proxies_list=None):
@@ -43,10 +46,10 @@ def pick_proxy(logger, proxies_list=None):
         ip, port, user, pwd = proxy.split(":")
         return f"http://{user}:{pwd}@{ip}:{port}"
     except ValueError:
-        logger(f"Bad proxy format: {proxy}, (use ip:port:user:pass)")
+        logger(f"Bad proxy format: {proxy}, (use ip:port:user:pass)\n")
         return None
     except Exception as e:
-        logger(f"Proxy error: {proxy}, {e}")
+        logger(f"Proxy error: {proxy}, {e}\n")
         return None
 
 async def get_channel_id_async(logger, channel_name=None, proxies_list=None):
@@ -55,22 +58,17 @@ async def get_channel_id_async(logger, channel_name=None, proxies_list=None):
         proxy_url = pick_proxy(logger, proxies_list)
         if not proxy_url:
             continue
-        
-        masked_proxy = proxy_url.split('@')[-1]
-        logger(f"Channel ID attempt {i+1}/5 using proxy: {masked_proxy}")
-
         try:
-            async with AsyncSession(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url}, timeout=15) as s:
+            async with AsyncSession(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url}, timeout=5) as s:
                 r = await s.get(f"https://kick.com/api/v2/channels/{channel_name}")
                 if r.status_code == 200:
-                    logger("Successfully got channel ID.")
                     return r.json().get("id")
                 else:
-                    logger(f"Channel ID attempt {i+1}/5 failed with status: {r.status_code}...")
+                    logger(f"Channel ID attempt {i+1}/5 failed with status: {r.status_code}...\n")
         except Exception as e:
-            logger(f"Channel ID attempt {i+1}/5 failed with error: {e}...")
+            logger(f"Channel ID attempt {i+1}/5 failed with error: {e}...\n")
         await asyncio.sleep(1)
-    logger("Failed to get channel ID after multiple retries.")
+    logger("Failed to get channel ID after multiple retries.\n")
     return None
 
 async def get_token_async(logger, proxies_list=None):
@@ -92,35 +90,36 @@ async def get_token_async(logger, proxies_list=None):
 
 async def get_tokens_in_bulk_async(logger, proxies_list, count):
     """Fetches multiple tokens concurrently with staggering and retries."""
-    logger(f"Fetching {count} tokens with high concurrency...")
+    logger(f"Fetching {count} tokens with high concurrency...\n")
     valid_tokens = []
     CONCURRENCY_LIMIT = 500
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
         batch_size = min(needed, CONCURRENCY_LIMIT)
-        logger(f"Requesting a new batch of {batch_size} tokens (staggered)...")
+        logger(f"Requesting a new batch of {batch_size} tokens (staggered)...\n")
         
         tasks = []
         for _ in range(batch_size):
             task = asyncio.create_task(get_token_async(logger, proxies_list))
             tasks.append(task)
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.01)  # 10ms delay between each task launch
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         newly_fetched = [res for res in results if res and isinstance(res, tuple) and res[0]]
         failed_count = batch_size - len(newly_fetched)
         valid_tokens.extend(newly_fetched)
 
-        logger(f"Batch summary: {len(newly_fetched)} successful, {failed_count} failed. Total tokens: {len(valid_tokens)}/{count}.")
+        logger(f"Batch summary: {len(newly_fetched)} successful, {failed_count} failed. Total tokens: {len(valid_tokens)}/{count}.\n")
 
         if len(valid_tokens) < count:
             if failed_count > 0:
-                logger("Pausing for 5s before next batch due to failures...")
+                logger("Pausing for 5s before next batch due to failures...\n")
                 await asyncio.sleep(5)
             else:
                 await asyncio.sleep(2)
 
+    logger(f"Successfully fetched all {count} tokens.\n")
     return valid_tokens
 
 async def connection_handler_async(logger, channel_id, index, initial_token, initial_proxy_url, stop_event, proxies_list, connected_viewers_counter):
@@ -129,10 +128,13 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
     while not stop_event.is_set():
         if not token:
+            logger(f"[{index}] Attempting to get a new token...\n")
             new_token_data = await get_token_async(logger, proxies_list)
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
+                logger(f"[{index}] Successfully got new token.\n")
             else:
+                logger(f"[{index}] Failed to get a new token, retrying in 15s...\n")
                 await asyncio.sleep(15)
                 continue
 
@@ -147,48 +149,59 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     await asyncio.sleep(random.randint(20, 30))
                     await ws.send_json({"type": "ping"})
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger(f"[{index}] Connection error. Reconnecting with new token... Error: {e}\n")
         finally:
             connected_viewers_counter.discard(index)
-            token = None
+            token = None  # Force a new token on any disconnect
             if not stop_event.is_set():
                 await asyncio.sleep(random.randint(5, 10))
 
+    logger(f"[{index}] Viewer task stopped.\n")
     connected_viewers_counter.discard(index)
 
-# --- Main Logic for Web Integration ---
-async def run_bot_async(channel, viewers, duration_seconds, stop_event, status_dict, proxies_path):
-    """The main async function to run the bot, adapted for web server integration."""
-    logger = lambda msg: status_updater(status_dict, msg)
-    
-    logger("Bot process started. Loading proxies...")
-    proxies = await load_proxies_async(logger, file_path=proxies_path)
+def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
+    """The main async function to run the bot, adapted for the website."""
+    logger = lambda msg: bot_logger(status_updater, msg)
+    try:
+        asyncio.run(run_bot_async(logger, stop_event, channel, viewers, duration_minutes))
+    except Exception as e:
+        detailed_error = traceback.format_exc()
+        logger(f"An unexpected error occurred in the bot's core loop: {e}\nDetails:\n{detailed_error}")
+    finally:
+        logger("Bot process has stopped.")
+
+async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
+    """The main async function to run the bot."""
+    duration_seconds = duration_minutes * 60
+
+    proxies = await load_proxies_async(logger)
     if not proxies:
-        logger("Halting: No proxies loaded.")
         return
 
-    logger(f"Getting channel ID for '{channel}'...")
     channel_id = await get_channel_id_async(logger, channel, proxies)
     if not channel_id:
-        logger(f"Halting: Could not get channel ID for '{channel}'.")
         return
 
-    logger(f"Acquiring {viewers} viewer tokens...")
     tokens_with_proxies = await get_tokens_in_bulk_async(logger, proxies, viewers)
     if not tokens_with_proxies:
-        logger("Halting: No tokens were fetched.")
+        logger("Halting: No tokens were fetched.\n")
         return
 
+    logger("Token acquisition finished. Spawning viewers...\n")
     start_time = time.time()
     connected_viewers = set()
 
+    # --- Spawn viewer tasks ---
     viewer_tasks = []
     for i, (token, proxy_url) in enumerate(tokens_with_proxies):
         task = asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
         viewer_tasks.append(task)
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.01) # Stagger connections
 
+    logger("All viewer tasks launched. Monitoring session.\n")
+
+    # --- Main monitoring loop ---
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
     while time.time() < end_time and not stop_event.is_set():
         if duration_seconds > 0:
@@ -198,27 +211,12 @@ async def run_bot_async(channel, viewers, duration_seconds, stop_event, status_d
         else:
             status_line = f"Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)} (Running indefinitely)"
         logger(status_line)
-        await asyncio.sleep(1)
+        await asyncio.sleep(5)
 
+    # --- Shutdown sequence ---
     if not stop_event.is_set():
-        logger("Timer finished. Signaling all viewer tasks to stop.")
+        logger("\nTimer finished. Signaling all viewer tasks to stop.")
         stop_event.set()
     
     await asyncio.gather(*viewer_tasks, return_exceptions=True)
-    logger("All viewer tasks have been terminated.")
-    status_dict["running"] = False
-
-def run_viewbot_logic(channel, num_viewers, duration_seconds, stop_event, proxies_path, status_dict):
-    """Synchronous wrapper to be called by the multiprocessing Process."""
-    try:
-        asyncio.run(run_bot_async(channel, num_viewers, duration_seconds, stop_event, status_dict, proxies_path))
-    except KeyboardInterrupt:
-        status_updater(status_dict, "Bot process interrupted by user.")
-    except Exception as e:
-        import traceback
-        # Using a more detailed and multi-line friendly error format
-        error_details = traceback.format_exc()
-        status_updater(status_dict, f"ERROR: {e}\n{error_details}")
-    finally:
-        status_updater(status_dict, "Bot process has shut down.")
-        status_dict["running"] = False
+    logger("\nAll viewer tasks have been terminated.")
