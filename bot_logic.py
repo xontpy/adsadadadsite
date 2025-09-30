@@ -58,51 +58,60 @@ def pick_proxy(logger, proxies_list=None):
         return None
 
 async def get_channel_id_async(logger, channel_name, proxies_list):
-    """Gets the channel ID using asynchronous requests."""
-    for i in range(5):
-        proxy_url = pick_proxy(logger, proxies_list)
-        if not proxy_url:
-            await asyncio.sleep(0.1)
-            continue
-        try:
-            async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=10) as s:
-                r = await s.get(f"https://kick.com/api/v2/channels/{channel_name}")
+    """Gets the channel ID using synchronous requests in a thread to avoid blocking."""
+    def sync_get_channel_id():
+        for i in range(5):
+            proxy_url = pick_proxy(logger, proxies_list)
+            if not proxy_url:
+                time.sleep(0.1)
+                continue
+            try:
+                s = requests.Session(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url}, timeout=10)
+                r = s.get(f"https://kick.com/api/v2/channels/{channel_name}")
                 r.raise_for_status()
                 data = r.json()
                 if "id" in data:
                     return data["id"]
                 else:
                     logger(f"Channel ID attempt {i+1}/5 failed: 'id' not in response.")
-        except Exception as e:
-            error_type = type(e).__name__
-            logger(f"Channel ID attempt {i+1}/5 failed ({error_type})...")
-        
-        if i < 4: # Don't sleep on the last attempt
-            await asyncio.sleep(1)
+            except Exception as e:
+                error_type = type(e).__name__
+                logger(f"Channel ID attempt {i+1}/5 failed ({error_type})...")
+            
+            if i < 4:
+                time.sleep(1)
+        return None
 
-    logger("Fatal: Failed to get channel ID after 5 attempts.")
-    return None
+    loop = asyncio.get_event_loop()
+    channel_id = await loop.run_in_executor(None, sync_get_channel_id)
+    if not channel_id:
+        logger("Fatal: Failed to get channel ID after 5 attempts.")
+    return channel_id
 
 
 async def get_token_async(logger, proxies_list):
-    """Gets a viewer token asynchronously with faster retries."""
-    for i in range(5):
-        proxy_url = pick_proxy(logger, proxies_list)
-        if not proxy_url:
-            await asyncio.sleep(0.1)
-            continue
-        try:
-            async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=10) as session:
-                await session.get("https://kick.com", timeout=10) # Warm-up
-                session.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
-                r = await session.get('https://websockets.kick.com/viewer/v1/token')
+    """Gets a viewer token using synchronous requests in a thread."""
+    def sync_get_token():
+        for i in range(5):
+            proxy_url = pick_proxy(logger, proxies_list)
+            if not proxy_url:
+                time.sleep(0.1)
+                continue
+            try:
+                s = requests.Session(impersonate="firefox135", proxies={"http": proxy_url, "https": proxy_url}, timeout=10)
+                s.get("https://kick.com") # Warm-up
+                s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+                r = s.get('https://websockets.kick.com/viewer/v1/token')
                 r.raise_for_status()
                 return r.json()["data"]["token"], proxy_url
-        except Exception as e:
-            error_type = type(e).__name__
-            logger(f"Token attempt {i+1}/5 failed ({error_type})...")
-            await asyncio.sleep(0.75)
-    return None, None
+            except Exception as e:
+                error_type = type(e).__name__
+                logger(f"Token attempt {i+1}/5 failed ({error_type})...")
+                time.sleep(1)
+        return None, None
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, sync_get_token)
 
 
 async def connection_handler_async(logger, channel_id, index, stop_event, proxies_list, connected_viewers_counter):
