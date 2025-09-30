@@ -9,7 +9,7 @@ import sys
 from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from pydantic import BaseModel
 from bot_logic import run_viewbot_logic
 from fastapi.middleware.cors import CORSMiddleware
@@ -139,9 +139,36 @@ async def callback(code: str):
         token_r.raise_for_status()
         discord_access_token = token_r.json()['access_token']
         return RedirectResponse(url=f"/#token={discord_access_token}")
-    except requests.exceptions.RequestException as e:
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:
+            # Rate limited by Discord
+            print("Discord token exchange failed: 429 Too Many Requests.")
+            return HTMLResponse(
+                status_code=429,
+                content="""
+                <html>
+                    <head>
+                        <title>Too Many Requests</title>
+                        <style>
+                            body { font-family: sans-serif; text-align: center; padding: 40px; background-color: #121212; color: #E0E0E0; }
+                            h1 { color: #FF6B6B; }
+                            p { font-size: 1.2em; }
+                            a { color: #76D7C4; }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>Whoa, slow down!</h1>
+                        <p>We're getting a "Too Many Requests" error from Discord. This usually means too many people are trying to log in at once.</p>
+                        <p>Please wait a few moments and then <a href="/login">try again</a>.</p>
+                    </body>
+                </html>
+                """
+            )
         print(f"Error during Discord token exchange: {e}")
         raise HTTPException(status_code=500, detail="Failed to authenticate with Discord.")
+    except requests.exceptions.RequestException as e:
+        print(f"A network error occurred during Discord token exchange: {e}")
+        raise HTTPException(status_code=500, detail="Failed to communicate with Discord. Please check your network and try again.")
 
 @app.get("/logout")
 async def logout():
