@@ -173,28 +173,35 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
     """
     token = initial_token
     proxy_url = initial_proxy_url
+    connection_attempts = 0
 
     while not stop_event.is_set():
         if not token:
-            logger(f"[{index}] Attempting to get a new token...")
+            logger(f"[{index}] No token. Attempting to get a new one...")
             new_token_data = await get_token_async(logger, proxies_list)
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
                 logger(f"[{index}] Successfully got new token.")
+                connection_attempts = 0 # Reset attempts on new token
             else:
                 logger(f"[{index}] Failed to get a new token, retrying in 15s...")
                 await asyncio.sleep(15)
                 continue
 
         ws = None
+        connection_attempts += 1
         try:
+            logger(f"[{index}] Attempt #{connection_attempts} to connect with proxy: {proxy_url}")
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
                 ws = await session.ws_connect(
                     f"wss://websockets.kick.com/viewer/v1/connect?token={token}",
                     headers={"User-Agent": "Mozilla/5.0"}, timeout=10
                 )
                 
+                logger(f"[{index}] Connection successful!")
                 connected_viewers_counter.add(index)
+                connection_attempts = 0 # Reset after successful connection
+                
                 counter = 0
                 while not stop_event.is_set():
                     counter += 1
@@ -210,16 +217,19 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     await asyncio.sleep(delay)
 
         except (curl_cffi.errors.CurlError, asyncio.TimeoutError) as e:
-            logger(f"[{index}] Connection error: {e}. Reconnecting with new token...")
+            logger(f"[{index}] Connection attempt #{connection_attempts} failed: {e}. Reconnecting...")
         except Exception as e:
-            logger(f"[{index}] Unexpected error: {e}. Reconnecting with new token...")
+            logger(f"[{index}] Unexpected error on attempt #{connection_attempts}: {e}. Reconnecting...")
         finally:
             if ws:
                 await ws.close()
             
-            connected_viewers_counter.discard(index)
+            # Only discard if it was ever added
+            if index in connected_viewers_counter:
+                logger(f"[{index}] Disconnecting. Removing from viewer count.")
+                connected_viewers_counter.discard(index)
             
-            # Force a new token on any kind of disconnect
+            # Force a new token on any kind of disconnect to ensure freshness
             token = None 
             
             if not stop_event.is_set():
@@ -227,7 +237,8 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                 await asyncio.sleep(random.randint(5, 10))
 
     logger(f"[{index}] Viewer task stopped.")
-    connected_viewers_counter.discard(index)
+    if index in connected_viewers_counter:
+        connected_viewers_counter.discard(index)
 
 async def start_viewbot_async(channel_name, viewers, duration, stop_event, discord_user=None):
     """Asynchronously starts the viewbot logic and returns a future."""
