@@ -129,7 +129,7 @@ async def connection_handler_async(logger, channel_id, index, stop_event, proxie
         ws = None
         session = None
         try:
-            logger(f"[{index}] Got token, connecting with proxy: {proxy_url}")
+            logger(f"[{index}] Got token, attempting to connect...")
             session = AsyncSession(impersonate="firefox135", proxy=proxy_url)
             ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=15)
             
