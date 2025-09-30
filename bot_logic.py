@@ -101,7 +101,7 @@ async def get_token_async(logger=console_logger, proxies_list=None):
     """Gets a viewer token using fully asynchronous requests for maximum speed."""
     # This function is designed for speed and high concurrency.
     # It will retry up to 3 times with different proxies if it fails.
-    for i in range(3):
+    for _ in range(3):
         _, proxy_url = pick_proxy(logger, proxies_list)
         if not proxy_url:
             continue # Try to get another proxy if the format was bad
@@ -134,8 +134,8 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     """Fetches multiple tokens concurrently in batches, retrying until the desired count is met."""
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
-    # Set a much lower concurrency limit to avoid rate-limiting
-    CONCURRENCY_LIMIT = 50
+    # Set a much higher concurrency limit for extreme speed
+    CONCURRENCY_LIMIT = 500
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
@@ -166,100 +166,65 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
 async def connection_handler_async(logger, channel_id, index, initial_token, initial_proxy_url, stop_event, proxies_list, connected_viewers_counter):
     """
     A persistent handler for a single viewer connection.
-    It aggressively switches proxies on failure and fetches new tokens when necessary.
+    It uses an initial token but will fetch new ones if the connection drops.
     """
     token = initial_token
     proxy_url = initial_proxy_url
-    connection_attempts = 0
-    token_retries = 0
 
     while not stop_event.is_set():
-        if not token or not proxy_url:
-            logger(f"[{index}] No token or proxy. Attempting to get a new pair...")
+        if not token:
+            logger(f"[{index}] Attempting to get a new token...")
             new_token_data = await get_token_async(logger, proxies_list)
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
-                logger(f"[{index}] Successfully got new token and proxy.")
-                connection_attempts = 0 # Reset attempts on new token
-                token_retries = 0
+                logger(f"[{index}] Successfully got new token.")
             else:
-                # If getting a token fails, apply exponential backoff
-                connection_attempts += 1
-                backoff_delay = min(60, (2 ** connection_attempts)) + random.uniform(0, 5)
-                logger(f"[{index}] Failed to get a new token/proxy. Retrying in {backoff_delay:.2f}s...")
-                await asyncio.sleep(backoff_delay)
+                logger(f"[{index}] Failed to get a new token, retrying in 15s...")
+                await asyncio.sleep(15)
                 continue
 
         ws = None
         try:
-            connection_attempts += 1
-            logger(f"[{index}] Attempt #{connection_attempts} to connect.")
-            async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
+            async with AsyncSession() as session:
                 ws = await session.ws_connect(
                     f"wss://websockets.kick.com/viewer/v1/connect?token={token}",
-                    headers={"User-Agent": "Mozilla/5.0"}, timeout=10
+                    proxy=proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10
                 )
                 
-                logger(f"[{index}] Connection successful!")
                 connected_viewers_counter.add(index)
-                connection_attempts = 0 # Reset after successful connection
-                token_retries = 0
-                
-                # Send initial handshake once
-                await ws.send_json({
-                    "type": "channel_handshake",
-                    "data": {"message": {"channelId": channel_id}}
-                })
-
+                counter = 0
                 while not stop_event.is_set():
-                    # Send a ping to keep the connection alive
-                    await ws.send_json({"type": "ping"})
+                    counter += 1
+                    if counter % 2 == 0:
+                        await ws.send_json({"type": "ping"})
+                    else:
+                        await ws.send_json({
+                            "type": "channel_handshake",
+                            "data": {"message": {"channelId": channel_id}}
+                        })
                     
-                    # Wait for a bit before the next ping
-                    delay = 20 + random.uniform(0, 10) # 20-30 seconds
+                    delay = 11 + random.randint(2, 7)
                     await asyncio.sleep(delay)
 
         except (curl_cffi.errors.CurlError, asyncio.TimeoutError) as e:
-            logger(f"[{index}] Connection attempt #{connection_attempts} failed: {e}. Reconnecting...")
-            token_retries += 1
+            logger(f"[{index}] Connection error: {e}. Reconnecting with new token...")
         except Exception as e:
-            logger(f"[{index}] Unexpected error on attempt #{connection_attempts}: {e}. Reconnecting...")
-            token_retries += 1
+            logger(f"[{index}] Unexpected error: {e}. Reconnecting with new token...")
         finally:
             if ws:
                 await ws.close()
             
-            if index in connected_viewers_counter:
-                logger(f"[{index}] Disconnecting. Removing from viewer count.")
-                connected_viewers_counter.discard(index)
+            connected_viewers_counter.discard(index)
             
-            # On ANY failure, immediately get a new proxy for the next attempt.
-            # The token might still be valid.
-            if proxies_list:
-                new_proxy_str = random.choice(proxies_list)
-                try:
-                    ip, port, user, pwd = new_proxy_str.split(":")
-                    proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
-                    logger(f"[{index}] Switched to a new proxy for next attempt.")
-                except ValueError:
-                    logger(f"[{index}] Bad proxy format in list. Will fetch new token/proxy pair.")
-                    proxy_url = None # Force a full refresh
-            
-            # After 3 failed attempts, assume the token is also bad.
-            if token_retries >= 3:
-                logger(f"[{index}] Failed to connect 3 times. Fetching a new token as well.")
-                token = None
-                token_retries = 0 # Reset counter
+            # Force a new token on any kind of disconnect
+            token = None 
             
             if not stop_event.is_set():
-                # Exponential backoff with jitter
-                backoff_delay = min(60, 5 + (2 ** connection_attempts)) + random.uniform(0, 5)
-                logger(f"[{index}] Waiting for {backoff_delay:.2f} seconds before reconnecting.")
-                await asyncio.sleep(backoff_delay)
+                # Wait before trying to reconnect
+                await asyncio.sleep(random.randint(5, 10))
 
     logger(f"[{index}] Viewer task stopped.")
-    if index in connected_viewers_counter:
-        connected_viewers_counter.discard(index)
+    connected_viewers_counter.discard(index)
 
 async def start_viewbot_async(channel_name, viewers, duration, stop_event, discord_user=None):
     """Asynchronously starts the viewbot logic and returns a future."""
