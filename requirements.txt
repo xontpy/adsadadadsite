@@ -1,9 +1,6 @@
-curl_cffi
 fastapi
-uvicorn
-requests
 python-dotenv
-starlette
-selenium
-webdriver-manager
-cffi
+requests
+curl_cffi
+uvicorn
+psutil
