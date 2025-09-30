@@ -184,8 +184,10 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                 logger(f"[{index}] Successfully got new token.")
                 connection_attempts = 0 # Reset attempts on new token
             else:
-                logger(f"[{index}] Failed to get a new token, retrying in 15s...")
-                await asyncio.sleep(15)
+                # If getting a token fails, wait a random interval before the next attempt
+                retry_delay = random.randint(15, 45)
+                logger(f"[{index}] Failed to get a new token, retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
                 continue
 
         ws = None
@@ -233,8 +235,8 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
             token = None 
             
             if not stop_event.is_set():
-                # Wait before trying to reconnect
-                await asyncio.sleep(random.randint(5, 10))
+                # Wait a longer, more random time before reconnecting to spread out the load
+                await asyncio.sleep(random.randint(10, 30))
 
     logger(f"[{index}] Viewer task stopped.")
     if index in connected_viewers_counter:
