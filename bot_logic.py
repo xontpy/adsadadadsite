@@ -11,7 +11,7 @@ def status_updater(status_dict, message):
     if status_dict:
         status_dict["status_line"] = message
 
-# --- Core Bot Logic (No changes from the previous version) ---
+# --- Core Bot Logic (from main.py, adapted and corrected) ---
 def load_proxies_sync(logger, file_path="proxies.txt"):
     """Loads proxies from the specified file."""
     try:
@@ -176,7 +176,6 @@ async def run_bot_async(channel, viewers, duration_seconds, stop_event, status_d
         logger("Halting: No tokens were fetched.")
         return
 
-    # After token acquisition, immediately start spawning viewers and update status
     start_time = time.time()
     connected_viewers = set()
 
@@ -195,7 +194,7 @@ async def run_bot_async(channel, viewers, duration_seconds, stop_event, status_d
         else:
             status_line = f"Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)} (Running indefinitely)"
         logger(status_line)
-        await asyncio.sleep(1) # Update status every second for a more responsive feel
+        await asyncio.sleep(1)
 
     if not stop_event.is_set():
         logger("Timer finished. Signaling all viewer tasks to stop.")
@@ -210,7 +209,6 @@ def run_viewbot_logic(channel, num_viewers, duration_seconds, stop_event, userna
     try:
         asyncio.run(run_bot_async(channel, num_viewers, duration_seconds, stop_event, status_dict, proxies_path))
     except KeyboardInterrupt:
-        # This is unlikely to be triggered in a subprocess but is good practice
         pass
     finally:
         status_updater(status_dict, "Bot process has shut down.")
