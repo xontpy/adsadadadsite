@@ -92,6 +92,8 @@ async def get_token_async(logger, proxies_list=None):
             continue
         try:
             async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=10) as session:
+                # "Warm-up" call to establish session/cookies, inspired by main.py
+                await session.get("https://kick.com", timeout=10)
                 session.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 r = await session.get('https://websockets.kick.com/viewer/v1/token')
                 r.raise_for_status()
