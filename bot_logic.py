@@ -205,18 +205,18 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                 connection_attempts = 0 # Reset after successful connection
                 token_retries = 0
                 
-                counter = 0
+                # Send initial handshake once
+                await ws.send_json({
+                    "type": "channel_handshake",
+                    "data": {"message": {"channelId": channel_id}}
+                })
+
                 while not stop_event.is_set():
-                    counter += 1
-                    if counter % 2 == 0:
-                        await ws.send_json({"type": "ping"})
-                    else:
-                        await ws.send_json({
-                            "type": "channel_handshake",
-                            "data": {"message": {"channelId": channel_id}}
-                        })
+                    # Send a ping to keep the connection alive
+                    await ws.send_json({"type": "ping"})
                     
-                    delay = 11 + random.randint(2, 7)
+                    # Wait for a bit before the next ping
+                    delay = 20 + random.uniform(0, 10) # 20-30 seconds
                     await asyncio.sleep(delay)
 
         except (curl_cffi.errors.CurlError, asyncio.TimeoutError) as e:
@@ -253,7 +253,7 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
             
             if not stop_event.is_set():
                 # Exponential backoff with jitter
-                backoff_delay = min(60, (2 ** connection_attempts)) + random.uniform(0, 5)
+                backoff_delay = min(60, 5 + (2 ** connection_attempts)) + random.uniform(0, 5)
                 logger(f"[{index}] Waiting for {backoff_delay:.2f} seconds before reconnecting.")
                 await asyncio.sleep(backoff_delay)
 
