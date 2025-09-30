@@ -14,28 +14,7 @@ import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request
-import sys
-import os
 
-# --- DEBUGGING PATH ISSUES ---
-print("--- DEBUG: In server.py ---")
-print(f"Current working directory: {os.getcwd()}")
-print(f"__file__: {__file__}")
-project_root = os.path.abspath(os.path.dirname(__file__))
-print(f"Calculated project_root: {project_root}")
-try:
-    print(f"Contents of project_root: {os.listdir(project_root)}")
-except Exception as e:
-    print(f"Could not list contents of project_root: {e}")
-print(f"sys.path before modification: {sys.path}")
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-    print(f"sys.path after modification: {sys.path}")
-else:
-    print("project_root already in sys.path.")
-print("--- END DEBUG ---")
-
-from bot_logic import run_viewbot_logic
 
 
 # --- Pydantic Models ---
@@ -187,6 +166,7 @@ async def get_me(user: dict = Depends(get_current_user)):
 
 @app.post("/api/start")
 async def start_bot(request: Request, user: dict = Depends(get_current_user)):
+    from script import run_viewbot_logic
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required.")
     # REMOVED: Permission check to allow any authenticated user to start the bot.
