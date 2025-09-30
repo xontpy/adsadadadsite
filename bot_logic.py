@@ -131,7 +131,10 @@ async def get_token_async(logger=console_logger, proxies_list=None):
 # --- Main connection logic (used by both GUI and Discord bot) ---
 
 async def get_tokens_in_bulk_async(logger, proxies_list, count):
-    """Fetches multiple tokens concurrently in batches, retrying until the desired count is met."""
+    """
+    Fetches multiple tokens concurrently in batches, retrying until the desired count is met.
+    Includes staggering to prevent rate-limiting at high concurrency.
+    """
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
     # Set a much higher concurrency limit for extreme speed
@@ -143,8 +146,15 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
         # Determine the size of the next batch
         batch_size = min(needed, CONCURRENCY_LIMIT)
         
-        logger(f"Requesting a new batch of {batch_size} tokens...")
-        tasks = [get_token_async(logger, proxies_list) for _ in range(batch_size)]
+        logger(f"Requesting a new batch of {batch_size} tokens (staggered)...")
+        
+        # Stagger the launch of token-fetching tasks to avoid overwhelming the server
+        tasks = []
+        for _ in range(batch_size):
+            task = asyncio.create_task(get_token_async(logger, proxies_list))
+            tasks.append(task)
+            await asyncio.sleep(0.01) # 10ms delay between each task launch
+
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Filter for successful results and extract them
@@ -156,8 +166,13 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
         logger(f"Batch summary: {len(newly_fetched)} successful, {failed_count} failed. Total tokens: {len(valid_tokens)}/{count}.")
 
         if len(valid_tokens) < count:
-            # Brief pause before the next batch to avoid getting rate-limited
-            await asyncio.sleep(2)
+            # If there were failures, wait longer before the next batch
+            if failed_count > 0:
+                logger("Pausing for 5s before next batch due to failures...")
+                await asyncio.sleep(5)
+            else:
+                # Brief pause before the next batch
+                await asyncio.sleep(2)
 
     logger(f"Successfully fetched all {count} tokens.")
     return valid_tokens
