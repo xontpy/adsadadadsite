@@ -138,7 +138,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     return valid_tokens
 
 async def connection_handler_async(logger, channel_id, index, initial_token, initial_proxy_url, stop_event, proxies_list, connected_viewers_counter):
-    """A persistent handler for a single viewer connection."""
+    """A persistent handler for a single viewer connection with active monitoring."""
     token, proxy_url = initial_token, initial_proxy_url
 
     while not stop_event.is_set():
@@ -147,28 +147,48 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
             else:
-                await asyncio.sleep(random.randint(3, 7)) # Reduced wait time
+                await asyncio.sleep(random.randint(3, 7))
                 continue
 
+        ws = None
+        session = None
         try:
-            async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
-                ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=15) # Increased timeout
-                
-                await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
-                connected_viewers_counter.add(index)
-                
-                while not stop_event.is_set():
-                    await asyncio.sleep(random.randint(20, 30))
+            session = AsyncSession(impersonate="firefox135", proxy=proxy_url)
+            ws = await session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=15)
+            
+            await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
+            
+            # Wait for the server's handshake confirmation before counting the viewer
+            await asyncio.wait_for(ws.recv_json(), timeout=10)
+            
+            connected_viewers_counter.add(index)
+            
+            # Main loop: actively listen for messages and send pings on timeout
+            while not stop_event.is_set():
+                try:
+                    # Wait for messages from the server (e.g., pongs, events)
+                    await asyncio.wait_for(ws.recv_json(), timeout=25)
+                except asyncio.TimeoutError:
+                    # No message received, send a ping to keep the connection alive
                     await ws.send_json({"type": "ping"})
 
+        except (asyncio.TimeoutError, ConnectionError, requests.errors.WsError) as e:
+            logger(f"Viewer {index} handshake/connection failed ({type(e).__name__}). Reconnecting...")
         except Exception as e:
             error_type = type(e).__name__
             logger(f"Viewer {index} disconnected ({error_type}). Reconnecting...")
         finally:
             connected_viewers_counter.discard(index)
+            if ws:
+                try:
+                    await ws.close()
+                except:
+                    pass # Ignore errors on close
+            if session:
+                await session.close()
             token = None  # Force a new token on any disconnect
             if not stop_event.is_set():
-                await asyncio.sleep(random.randint(1, 5)) # Faster reconnect
+                await asyncio.sleep(random.randint(1, 5))
 
     logger(f"[{index}] Viewer task stopped.")
     connected_viewers_counter.discard(index)
