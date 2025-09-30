@@ -148,25 +148,6 @@ async function fetchUserData(token) {
         }
     }
 
-    function updateStartButton() {
-    const startButton = document.getElementById('start-bot-button');
-    const buttonText = startButton.querySelector('.btn-text');
-    const buttonIcon = startButton.querySelector('i');
-
-    if (isBotRunning) {
-        buttonIcon.classList.remove('fa-play');
-        buttonIcon.classList.add('fa-stop');
-        buttonText.textContent = 'Stop Views';
-        startButton.classList.remove('btn-success');
-        startButton.classList.add('btn-danger');
-    } else {
-        buttonIcon.classList.remove('fa-stop');
-        buttonIcon.classList.add('fa-play');
-        buttonText.textContent = 'Start Views';
-        startButton.classList.remove('btn-danger');
-        startButton.classList.add('btn-success');
-    }
-}
     // --- Bot Actions ---
     controlPanel.addEventListener('click', (event) => {
         const startButton = document.getElementById('start-bot-button');
@@ -204,12 +185,7 @@ async function fetchUserData(token) {
         }
         
         const startButton = document.getElementById('start-bot-button');
-        const buttonText = startButton.querySelector('.btn-text');
-        const buttonIcon = startButton.querySelector('i');
-
-        buttonIcon.classList.remove('fa-play');
-        buttonIcon.classList.add('fa-spinner', 'fa-spin');
-        buttonText.textContent = 'Starting...';
+        startButton.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Starting...`;
         startButton.disabled = true;
 
 
@@ -234,7 +210,6 @@ async function fetchUserData(token) {
             if (response.ok) {
                 showStatus(data.message || 'Bot started successfully!', 'success');
                 isBotRunning = true;
-                updateStartButton();
                 pollStatus(); // Start polling immediately
             } else {
                 throw new Error(data.detail || 'Failed to start bot.');
@@ -242,21 +217,15 @@ async function fetchUserData(token) {
         } catch (error) {
             showStatus(`Error starting bot: ${error.message}`, 'error');
             isBotRunning = false;
-            updateStartButton();
         } finally {
             startButton.disabled = false;
-            // The icon and text are managed by updateStartButton, so no need to reset here
+            // pollStatus will update the button
         }
     }
 
     async function stopBot() {
         const startButton = document.getElementById('start-bot-button');
-        const buttonText = startButton.querySelector('.btn-text');
-        const buttonIcon = startButton.querySelector('i');
-
-        buttonIcon.classList.remove('fa-play', 'fa-stop');
-        buttonIcon.classList.add('fa-spinner', 'fa-spin');
-        buttonText.textContent = 'Stopping...';
+        startButton.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Stopping...`;
         startButton.disabled = true;
 
         const token = localStorage.getItem('accessToken');
@@ -271,7 +240,6 @@ async function fetchUserData(token) {
             if (response.ok) {
                 showStatus(data.message || 'Bot stopped successfully.', 'success');
                 isBotRunning = false;
-                updateStartButton();
                 botStatusContainer.style.display = 'none';
                 botStatusLine.textContent = '';
             } else {
@@ -281,10 +249,7 @@ async function fetchUserData(token) {
             showStatus(`Error stopping bot: ${error.message}`, 'error');
         } finally {
             startButton.disabled = false;
-            // updateStartButton will be called on the next poll, or we can call it directly
-            if (!isBotRunning) {
-                 updateStartButton();
-            }
+            // pollStatus will update the button
         }
     }
 
@@ -316,9 +281,22 @@ async function fetchUserData(token) {
                 }
                 
                 const status = await response.json();
+                const startButton = document.getElementById('start-bot-button');
 
                 isBotRunning = status.is_bot_running;
-                updateStartButton(); // Update button based on the latest status
+
+                // Do not update button if it's in a transient state (Starting.../Stopping...)
+                if (startButton.disabled) {
+                    // It will be enabled and updated when the start/stop action finishes
+                } else if (isBotRunning) {
+                    startButton.innerHTML = `<img src="assets/icons/stop-view-icon.svg" alt="" style="width: 16px; height: 16px; margin-bottom: 2px;"> Stop Views`;
+                    startButton.classList.remove('btn-success');
+                    startButton.classList.add('btn-danger');
+                } else {
+                    startButton.innerHTML = `<img src="assets/icons/start-view-icon.svg" alt="" style="width: 16px; height: 16px; margin-bottom: 2px;"> Start Views`;
+                    startButton.classList.remove('btn-danger');
+                    startButton.classList.add('btn-success');
+                }
 
                 if (status.is_bot_running && status.status_message) {
                     botStatusContainer.style.display = 'block';
@@ -329,10 +307,6 @@ async function fetchUserData(token) {
 
             } catch (error) {
                 console.error('Polling error:', error.message);
-                // Don't show status error on every poll failure, could be noisy
-                // showStatus('Could not retrieve bot status.', 'error');
-                // If the error indicates a real problem (like server down), then stop.
-                // For now, we just log it and continue trying.
             }
         }, 2000); // Poll every 2 seconds
     }
