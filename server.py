@@ -157,7 +157,7 @@ async def get_me(user: dict = Depends(get_current_user)):
     }
 
 @app.post("/api/start")
-async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_user)):
+async def start_bot(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required.")
 
@@ -165,34 +165,40 @@ async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_u
     if user_id in user_bot_sessions and psutil.pid_exists(user_bot_sessions[user_id]['pid']):
         raise HTTPException(status_code=400, detail="You already have a bot running.")
 
-    # Validate against user's max_views
-    if payload.views > user.get('max_views', 0):
-        raise HTTPException(status_code=403, detail=f"You are not allowed to request more than {user.get('max_views', 0)} views.")
-
+    data = await request.json()
+    channel = data.get("channel")
+    num_viewers = data.get("num_viewers")
+    duration_minutes = data.get("duration_minutes")
+    username = user.get("username", "UnknownUser")
     proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
 
+    if not all([channel, num_viewers, duration_minutes]):
+        raise HTTPException(status_code=400, detail="Missing required parameters.")
+
     try:
-        duration_seconds = payload.duration * 60
+        duration_seconds = duration_minutes * 60
         stop_event = multiprocessing.Event()
         status_dict = manager.dict({"running": True, "status_line": "Initializing..."})
 
         process = multiprocessing.Process(
             target=run_viewbot_logic, 
-            args=(payload.channel, payload.views, duration_seconds, stop_event, proxies_path, status_dict)
+            args=(channel, num_viewers, duration_seconds, stop_event, proxies_path, status_dict)
         )
         process.start()
 
+        # Store the PID and status dict for the user
         user_bot_sessions[user_id] = {
             'pid': process.pid,
-            'stop_event': stop_event,
+            'stop_event': stop_event, # Still need this to signal the process
             'status': status_dict
         }
 
         return {"message": "Bot started successfully"}
     except Exception as e:
+        # Clean up if something goes wrong
         if user_id in user_bot_sessions:
             del user_bot_sessions[user_id]
-        raise HTTPException(status_code=500, detail=f"Failed to start bot: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Server error: {e}")
 
 @app.post("/api/stop")
 async def stop_bot(user: dict = Depends(get_current_user)):
