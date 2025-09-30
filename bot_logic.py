@@ -90,36 +90,36 @@ async def get_token_async(logger, proxies_list=None):
 
 async def get_tokens_in_bulk_async(logger, proxies_list, count):
     """Fetches multiple tokens concurrently with staggering and retries."""
-    logger(f"Fetching {count} tokens with high concurrency...\n")
+    logger(f"Fetching {count} tokens...")
     valid_tokens = []
     CONCURRENCY_LIMIT = 500
+    last_log_time = time.time()
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
         batch_size = min(needed, CONCURRENCY_LIMIT)
-        logger(f"Requesting a new batch of {batch_size} tokens (staggered)...\n")
         
         tasks = []
         for _ in range(batch_size):
             task = asyncio.create_task(get_token_async(logger, proxies_list))
             tasks.append(task)
-            await asyncio.sleep(0.01)  # 10ms delay between each task launch
+            await asyncio.sleep(0.01)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         newly_fetched = [res for res in results if res and isinstance(res, tuple) and res[0]]
-        failed_count = batch_size - len(newly_fetched)
         valid_tokens.extend(newly_fetched)
 
-        logger(f"Batch summary: {len(newly_fetched)} successful, {failed_count} failed. Total tokens: {len(valid_tokens)}/{count}.\n")
+        current_time = time.time()
+        if current_time - last_log_time > 1 or len(valid_tokens) == count:
+            logger(f"Fetching tokens: {len(valid_tokens)}/{count} successful.")
+            last_log_time = current_time
 
-        if len(valid_tokens) < count:
-            if failed_count > 0:
-                logger("Pausing for 5s before next batch due to failures...\n")
-                await asyncio.sleep(5)
-            else:
-                await asyncio.sleep(2)
+        if len(valid_tokens) < count and not newly_fetched:
+             logger(f"Token fetch stalled. Retrying in 5s...")
+             await asyncio.sleep(5)
+        elif len(valid_tokens) < count:
+            await asyncio.sleep(1)
 
-    logger(f"Successfully fetched all {count} tokens.\n")
     return valid_tokens
 
 async def connection_handler_async(logger, channel_id, index, initial_token, initial_proxy_url, stop_event, proxies_list, connected_viewers_counter):
@@ -128,13 +128,10 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
 
     while not stop_event.is_set():
         if not token:
-            logger(f"[{index}] Attempting to get a new token...\n")
             new_token_data = await get_token_async(logger, proxies_list)
             if new_token_data and new_token_data[0]:
                 token, proxy_url = new_token_data
-                logger(f"[{index}] Successfully got new token.\n")
             else:
-                logger(f"[{index}] Failed to get a new token, retrying in 15s...\n")
                 await asyncio.sleep(15)
                 continue
 
@@ -149,15 +146,14 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     await asyncio.sleep(random.randint(20, 30))
                     await ws.send_json({"type": "ping"})
 
-        except Exception as e:
-            logger(f"[{index}] Connection error. Reconnecting with new token... Error: {e}\n")
+        except Exception:
+            pass
         finally:
             connected_viewers_counter.discard(index)
-            token = None  # Force a new token on any disconnect
+            token = None
             if not stop_event.is_set():
                 await asyncio.sleep(random.randint(5, 10))
 
-    logger(f"[{index}] Viewer task stopped.\n")
     connected_viewers_counter.discard(index)
 
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
@@ -188,7 +184,6 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
         logger("Halting: No tokens were fetched.\n")
         return
 
-    logger("Token acquisition finished. Spawning viewers...\n")
     start_time = time.time()
     connected_viewers = set()
 
@@ -197,9 +192,7 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
     for i, (token, proxy_url) in enumerate(tokens_with_proxies):
         task = asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
         viewer_tasks.append(task)
-        await asyncio.sleep(0.01) # Stagger connections
-
-    logger("All viewer tasks launched. Monitoring session.\n")
+        await asyncio.sleep(0.01)
 
     # --- Main monitoring loop ---
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
@@ -211,12 +204,12 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
         else:
             status_line = f"Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)} (Running indefinitely)"
         logger(status_line)
-        await asyncio.sleep(5)
+        await asyncio.sleep(1)
 
     # --- Shutdown sequence ---
     if not stop_event.is_set():
-        logger("\nTimer finished. Signaling all viewer tasks to stop.")
+        logger("Timer finished. Stopping viewers...")
         stop_event.set()
     
     await asyncio.gather(*viewer_tasks, return_exceptions=True)
-    logger("\nAll viewer tasks have been terminated.")
+    logger("All viewers have been stopped.")
