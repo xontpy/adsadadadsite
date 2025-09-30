@@ -138,7 +138,7 @@ async def get_tokens_in_bulk_async(logger, proxies_list, count):
     logger(f"Fetching {count} tokens with high concurrency...")
     valid_tokens = []
     # Set a much lower concurrency limit to avoid rate-limiting
-    CONCURRENCY_LIMIT = 100
+    CONCURRENCY_LIMIT = 75
 
     while len(valid_tokens) < count:
         needed = count - len(valid_tokens)
@@ -308,7 +308,7 @@ def run_viewbot_logic(channel_name, viewers, duration, stop_event, discord_user=
                 )
                 viewer_tasks.append(task)
                 # Stagger the launch of each connection to avoid overwhelming the server/network
-                await asyncio.sleep(0.05) 
+                await asyncio.sleep(0.1) 
 
             # 4. Main monitoring loop
             logger("All viewer tasks have been launched. Monitoring session.")
