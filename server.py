@@ -15,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request
 # --- Correctly Import the main bot function ---
+# Add the script's directory to the Python path to resolve module not found errors.
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from bot_logic import run_viewbot_logic
 
 
