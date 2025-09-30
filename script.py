@@ -1,336 +1,352 @@
+import os
 import asyncio
-import random
+import multiprocessing
 import time
-import curl_cffi
-from curl_cffi import requests, AsyncSession
-import sys
+import requests  # Use the standard requests library
+import sys  # Import the sys module
+from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
+import uvicorn
+# REMOVE: from starlette.middleware.sessions import SessionMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+from fastapi import FastAPI, Depends, HTTPException, Request
+# --- Correctly Import the main bot function ---
+from script import run_viewbot_logic
 
-# --- Core Bot Logic ---
 
-def console_logger(message):
-    """A simple logger that prints to the console."""
-    print(f"[{time.strftime('%H:%M:%S')}] {message}")
+# --- Pydantic Models ---
+class StartBotPayload(BaseModel):
+    channel: str
+    views: int
+    duration: int
 
-def load_proxies_sync(logger=console_logger, file_path="proxies.txt"):
-    """Loads proxies from the specified file (SYNC)."""
-    try:
-        with open(file_path, "r") as f:
-            # Use a set to automatically handle duplicates, then convert to list
-            proxies = list(set(line.strip() for line in f if line.strip()))
-        if not proxies:
-            logger(f"Error: '{file_path}' is empty.")
-            return None
-        logger(f"Loaded {len(proxies)} unique proxies from: {file_path}")
-        return proxies
-    except FileNotFoundError:
-        logger(f"Error: Proxies file not found: {file_path}")
+class ProxiesSaveRequest(BaseModel):
+    proxies: str
+
+# --- Environment Variables ---
+load_dotenv()
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
+DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI")
+DISCORD_GUILD_ID = os.getenv("DISCORD_GUILD_ID")
+SECRET_KEY = os.getenv("SECRET_KEY")
+OWNER_ROLE_ID = os.getenv("OWNER_ROLE_ID")
+PRO_ROLE_ID = os.getenv("PRO_ROLE_ID")
+ALGORITHM = os.getenv("ALGORITHM")
+
+# --- FastAPI App ---
+app = FastAPI()
+
+# --- Middleware -- REMOVED SessionMiddleware ---
+# The SECRET_KEY is no longer needed for session management but might be used for other things.
+# Keep it loaded but the app doesn't need to be configured with it here.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"], # Allows all methods
+    allow_headers=["*"], # Allows all headers
+)
+
+
+# --- Role Permissions ---
+ROLE_PERMISSIONS = {
+    OWNER_ROLE_ID: {"max_views": 10000, "level": "owner"},
+    PRO_ROLE_ID: {"max_views": 1000, "level": "pro"},
+    "default": {"max_views": 100, "level": "user"},
+}
+
+# --- Bot State ---
+bot_process = None
+bot_start_time = None
+bot_duration = 0
+bot_stop_event = None # Event to signal the bot to stop gracefully
+
+# --- Shared Status for UI ---
+# Use a multiprocessing Manager to create a shared dictionary
+manager = multiprocessing.Manager()
+bot_status = manager.dict()
+
+# Initialize status
+bot_status["running"] = False
+bot_status["status_line"] = ""
+
+# --- Authentication Dependency ---
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    if not token:
         return None
-    except Exception as e:
-        logger(f"Proxy load error: {e}")
-        return None
 
-def pick_proxy(logger=console_logger, proxies_list=None):
-    """Picks a random proxy from the provided list."""
-    if not proxies_list:
-        return None, None
-    proxy = random.choice(proxies_list)
-    try:
-        ip, port, user, pwd = proxy.split(":")
-        # Corrected proxy format
-        full_url = f"http://{user}:{pwd}@{ip}:{port}"
-        proxy_dict = {"http": full_url, "https": full_url}
-        return proxy_dict, full_url
-    except ValueError:
-        logger(f"Bad proxy format: {proxy}, (use ip:port:user:pass)")
-        return None, None
-    except Exception as e:
-        logger(f"Proxy error: {proxy}, {e}")
-        return None, None
-
-def get_channel_id_sync(logger=console_logger, channel_name=None, proxies_list=None):
-    """Gets the channel ID using synchronous requests (SYNC)."""
-    for _ in range(5):
-        s = requests.Session(impersonate="firefox135")
-        proxy_dict, _ = pick_proxy(logger, proxies_list)
-        if not proxy_dict:
-            continue
-        s.proxies = proxy_dict
-        try:
-            r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
-            if r.status_code == 200:
-                return r.json().get("id")
-            else:
-                logger(f"Channel ID: {r.status_code}, retrying...")
-        except Exception as e:
-            logger(f"Channel ID error: {e}, retrying...")
-        time.sleep(1)
-    logger("Failed to get channel ID after multiple retries.")
-    return None
-
-def get_token_sync(logger=console_logger, proxies_list=None):
-    """Gets a viewer token using synchronous requests (SYNC)."""
-    for _ in range(5):
-        s = requests.Session(impersonate="firefox135")
-        proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
-        if not proxy_dict:
-            continue
-        s.proxies = proxy_dict
-        try:
-            s.get("https://kick.com", timeout=5)
-            s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
-            r = s.get('https://websockets.kick.com/viewer/v1/token', timeout=5)
-            if r.status_code == 200:
-                return r.json()["data"]["token"], proxy_url
-            else:
-                logger(f"Token: {r.status_code}, trying another proxy...")
-        except Exception as e:
-            logger(f"Token error: {e}, trying another proxy...")
-        time.sleep(1)
-    return None, None
-
-# --- Async wrappers for Discord Bot ---
-
-async def load_proxies_async(logger=console_logger, file_path="proxies.txt"):
-    return await asyncio.to_thread(load_proxies_sync, logger, file_path)
-
-async def get_channel_id_async(logger=console_logger, channel_name=None, proxies_list=None):
-    return await asyncio.to_thread(get_channel_id_sync, logger, channel_name, proxies_list)
-
-async def get_token_async(logger=console_logger, proxies_list=None):
-    """Gets a viewer token using fully asynchronous requests for maximum speed."""
-    # This function is designed for speed and high concurrency.
-    # It will retry up to 3 times with different proxies if it fails.
-    for _ in range(3):
-        _, proxy_url = pick_proxy(logger, proxies_list)
-        if not proxy_url:
-            continue # Try to get another proxy if the format was bad
-
-        try:
-            # Use AsyncSession for non-blocking I/O
-            async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=10) as session:
-                # The first request warms up the session and gets cookies
-                await session.get("https://kick.com")
-                
-                # Set the required header for the token request
-                session.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
-                
-                # Make the actual token request
-                r = await session.get('https://websockets.kick.com/viewer/v1/token')
-                
-                if r.status_code == 200:
-                    token = r.json()["data"]["token"]
-                    return token, proxy_url # Success
-                
-        except Exception:
-            # Silently ignore errors and retry with a new proxy
-            pass
-            
-    return None, None # Failed after all retries
-
-
-# --- Main connection logic (used by both GUI and Discord bot) ---
-
-async def get_tokens_in_bulk_async(logger, proxies_list, count):
-    """Fetches multiple tokens concurrently in batches, retrying until the desired count is met."""
-    logger(f"Fetching {count} tokens with high concurrency...")
-    valid_tokens = []
-    # Set a much higher concurrency limit for extreme speed
-    CONCURRENCY_LIMIT = 500
-
-    while len(valid_tokens) < count:
-        needed = count - len(valid_tokens)
-        
-        # Determine the size of the next batch
-        batch_size = min(needed, CONCURRENCY_LIMIT)
-        
-        logger(f"Requesting a new batch of {batch_size} tokens...")
-        tasks = [get_token_async(logger, proxies_list) for _ in range(batch_size)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Filter for successful results and extract them
-        newly_fetched = [res for res in results if res and isinstance(res, tuple) and res[0]]
-        failed_count = batch_size - len(newly_fetched)
-
-        valid_tokens.extend(newly_fetched)
-
-        logger(f"Batch summary: {len(newly_fetched)} successful, {failed_count} failed. Total tokens: {len(valid_tokens)}/{count}.")
-
-        if len(valid_tokens) < count:
-            # Brief pause before the next batch to avoid getting rate-limited
-            await asyncio.sleep(2)
-
-    logger(f"Successfully fetched all {count} tokens.")
-    return valid_tokens
-
-
-async def connection_handler_async(logger, channel_id, index, initial_token, initial_proxy_url, stop_event, proxies_list, connected_viewers_counter):
-    """
-    A persistent handler for a single viewer connection.
-    It uses an initial token but will fetch new ones if the connection drops.
-    """
-    token = initial_token
-    proxy_url = initial_proxy_url
-
-    while not stop_event.is_set():
-        if not token:
-            logger(f"[{index}] Attempting to get a new token...")
-            new_token_data = await get_token_async(logger, proxies_list)
-            if new_token_data and new_token_data[0]:
-                token, proxy_url = new_token_data
-                logger(f"[{index}] Successfully got new token.")
-            else:
-                logger(f"[{index}] Failed to get a new token, retrying in 15s...")
-                await asyncio.sleep(15)
-                continue
-
-        ws = None
-        try:
-            async with AsyncSession(impersonate="firefox135", proxy=proxy_url) as session:
-                ws = await session.ws_connect(
-                    f"wss://websockets.kick.com/viewer/v1/connect?token={token}",
-                    headers={"User-Agent": "Mozilla/5.0"}, timeout=10
-                )
-                
-                connected_viewers_counter.add(index)
-                counter = 0
-                while not stop_event.is_set():
-                    counter += 1
-                    if counter % 2 == 0:
-                        await ws.send_json({"type": "ping"})
-                    else:
-                        await ws.send_json({
-                            "type": "channel_handshake",
-                            "data": {"message": {"channelId": channel_id}}
-                        })
-                    
-                    delay = 11 + random.randint(2, 7)
-                    await asyncio.sleep(delay)
-
-        except (curl_cffi.errors.CurlError, asyncio.TimeoutError) as e:
-            logger(f"[{index}] Connection error: {e}. Reconnecting with new token...")
-        except Exception as e:
-            logger(f"[{index}] Unexpected error: {e}. Reconnecting with new token...")
-        finally:
-            if ws:
-                await ws.close()
-            
-            connected_viewers_counter.discard(index)
-            
-            # Force a new token on any kind of disconnect
-            token = None 
-            
-            if not stop_event.is_set():
-                # Wait before trying to reconnect
-                await asyncio.sleep(random.randint(5, 10))
-
-    logger(f"[{index}] Viewer task stopped.")
-    connected_viewers_counter.discard(index)
-
-async def start_viewbot_async(channel_name, viewers, duration, stop_event, discord_user=None):
-    """Asynchronously starts the viewbot logic and returns a future."""
-    loop = asyncio.get_running_loop()
+    user_headers = {"Authorization": f"Bearer {token}"}
     
-    def thread_target():
-        # This function is what the thread will execute.
-        # It runs the synchronous viewbot logic.
-        run_viewbot_logic(channel_name, viewers, duration, stop_event, discord_user)
+    # 1. Fetch user's identity
+    user_r = requests.get('https://discord.com/api/users/@me', headers=user_headers)
+    if user_r.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid Discord token. Please log in again.")
+    user_json = user_r.json()
 
-    # loop.run_in_executor schedules the function to run in a thread pool
-    # and returns a Future object that can be awaited and cancelled.
-    future = loop.run_in_executor(
-        None,  # Use the default executor (a ThreadPoolExecutor)
-        thread_target
+    # 2. Fetch user's roles in the specific guild
+    guild_member_r = requests.get(f'https://discord.com/api/users/@me/guilds/{DISCORD_GUILD_ID}/member', headers=user_headers)
+    guild_roles = guild_member_r.json().get('roles', []) if guild_member_r.status_code == 200 else []
+    user_json['roles'] = guild_roles
+    
+    # 3. Determine user's permission level and add it to the user object
+    default_permission = ROLE_PERMISSIONS.get("default", {"max_views": 100, "level": "user"})
+    user_level = default_permission["level"]
+    max_views = default_permission["max_views"]
+
+    if OWNER_ROLE_ID and OWNER_ROLE_ID in guild_roles:
+        permission = ROLE_PERMISSIONS.get(OWNER_ROLE_ID, {})
+        user_level = permission.get("level", user_level)
+        max_views = permission.get("max_views", max_views)
+    elif PRO_ROLE_ID and PRO_ROLE_ID in guild_roles:
+        permission = ROLE_PERMISSIONS.get(PRO_ROLE_ID, {})
+        user_level = permission.get("level", user_level)
+        max_views = permission.get("max_views", max_views)
+        
+    user_json['level'] = user_level
+    user_json['max_views'] = max_views
+    
+    return user_json
+
+
+# --- API Endpoints ---
+
+@app.get("/login")
+def login_with_discord():
+    """Redirects the user to Discord for authorization."""
+    return RedirectResponse(
+        f"https://discord.com/api/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&redirect_uri={DISCORD_REDIRECT_URI}&response_type=code&scope=identify%20guilds.members.read"
     )
-    
-    return future
 
-def run_viewbot_logic(channel_name, viewers, duration, stop_event, discord_user=None, proxies_path="proxies.txt", status_dict=None):
-    """The core logic for running the viewbot, using the async connection handler."""
+@app.get("/callback")
+async def callback(request: Request, code: str):
+    if not code:
+        return JSONResponse({"error": "No code provided"}, status_code=400)
     
-    # A simple logger that can be redirected if needed
-    def logger(message):
-        print(f"[{time.strftime('%H:%M:%S')}] {message}")
-        if status_dict is not None:
-            status_dict["status_line"] = message
+    token_data = {
+        'client_id': DISCORD_CLIENT_ID, 'client_secret': DISCORD_CLIENT_SECRET,
+        'grant_type': 'authorization_code', 'code': code, 'redirect_uri': DISCORD_REDIRECT_URI,
+    }
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    
+    try:
+        token_r = requests.post('https://discord.com/api/oauth2/token', data=token_data, headers=headers)
+        token_r.raise_for_status() # Raise an exception for bad status codes
+        
+        discord_access_token = token_r.json()['access_token']
+        
+        # Redirect to the main page with the token in the hash.
+        response = RedirectResponse(url=f"/#token={discord_access_token}")
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"Error during Discord token exchange: {e}")
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    # On the frontend, the token is cleared from localStorage.
+    # This endpoint just needs to redirect back.
+    return RedirectResponse(url="/")
+
+@app.get("/api/me")
+async def get_me(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # The user object from the dependency now contains all necessary info
+    return {
+        'id': user['id'], 'username': user['username'], 'avatar': user['avatar'],
+        'max_views': user['max_views'], 'level': user['level'],
+    }
+
+@app.post("/api/start")
+async def start_bot(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    # REMOVED: Permission check to allow any authenticated user to start the bot.
+    # if user['level'] not in ['owner', 'pro']:
+    #     raise HTTPException(status_code=403, detail="You do not have permission to start the bot.")
+
+    global bot_process, bot_stop_event
+
+    if bot_process and bot_process.is_alive():
+        raise HTTPException(status_code=400, detail="Bot is already running")
+
+    data = await request.json()
+    channel = data.get("channel")
+    num_viewers = data.get("num_viewers")
+    duration_minutes = data.get("duration_minutes") # Duration from frontend is in minutes
+    username = user.get("username", "UnknownUser") # Get username from user object
+    proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
+
+
+    if not channel:
+        raise HTTPException(status_code=400, detail="Channel name is required.")
+    if num_viewers is None or not isinstance(num_viewers, int) or num_viewers <= 0:
+        raise HTTPException(status_code=400, detail="Number of viewers must be a positive integer.")
+    if duration_minutes is None or not isinstance(duration_minutes, int) or duration_minutes <= 0:
+        raise HTTPException(status_code=400, detail="Duration must be a positive integer.")
 
     try:
-        duration_text = f"for {duration // 60} minutes" if duration else "indefinitely"
-        log_message = f"Starting viewbot for {channel_name} with {viewers} viewers {duration_text}."
-        if discord_user:
-            log_message += f" (Requested by {discord_user})"
-        logger(log_message)
+        # Convert duration from minutes to seconds
+        duration_seconds = duration_minutes * 60
 
-        proxies = load_proxies_sync(logger, file_path=proxies_path)
-        if not proxies:
-            logger("❌ No proxies loaded. Stopping.")
-            return
+        # Create a stop event for graceful shutdown
+        bot_stop_event = multiprocessing.Event()
+        
+        # Reset status before starting
+        bot_status["running"] = True
+        bot_status["status_line"] = "Initializing..."
 
-        channel_id = get_channel_id_sync(logger, channel_name, proxies)
-        if not channel_id:
-            logger(f"❌ Failed to get channel ID for {channel_name}. Stopping.")
-            return
-
-        # This async function will be the entry point for our asyncio event loop.
-        async def main():
-            # 1. Fetch tokens concurrently
-            tokens_with_proxies = await get_tokens_in_bulk_async(logger, proxies, viewers)
-            if not tokens_with_proxies:
-                logger("Halting: No tokens were fetched.")
-                return
-
-            # 2. Start timer and status updater
-            logger("Token acquisition finished.")
-            start_time = time.time()
-            connected_viewers = set()
-            
-            async def status_updater_task():
-                """A task that counts down duration and prints status."""
-                if duration:
-                    end_time = start_time + duration
-                    while time.time() < end_time and not stop_event.is_set():
-                        remaining = end_time - time.time()
-                        mins, secs = divmod(remaining, 60)
-                        status_line = f"Time Left: {int(mins):02d}:{int(secs):02d} | Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)}"
-                        logger(status_line)
-                        await asyncio.sleep(5)
-                    
-                    if not stop_event.is_set():
-                        logger("Timer finished. Signaling all viewer tasks to stop.")
-                        stop_event.set()
-                else:  # Run indefinitely
-                    while not stop_event.is_set():
-                        status_line = f"Sending Views: {len(connected_viewers)}/{len(tokens_with_proxies)}"
-                        logger(status_line)
-                        await asyncio.sleep(5)
-
-            status_updater = asyncio.create_task(status_updater_task())
-
-            # 3. Spawn viewer tasks with pre-fetched tokens
-            logger(f"Sending {len(tokens_with_proxies)} viewers to {channel_name}.")
-            
-            viewer_tasks = [
-                asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
-                for i, (token, proxy_url) in enumerate(tokens_with_proxies)
-            ]
-
-            # Wait for the status updater to finish
-            await status_updater
-            logger("Timer finished or bot was stopped. Stopping viewer tasks...")
-            stop_event.set()
-
-            await asyncio.gather(*viewer_tasks, return_exceptions=True)
-            logger("All viewer tasks have been terminated.")
-
-        asyncio.run(main())
-
+        # Update the Process call to include all required arguments
+        bot_process = multiprocessing.Process(
+            target=run_viewbot_logic, 
+            args=(channel, num_viewers, duration_seconds, bot_stop_event, username, proxies_path, bot_status)
+        )
+        bot_process.start()
+        return {"message": "Bot started successfully"}
     except Exception as e:
-        error_message = f"An error occurred in the viewbot: {e}"
-        logger(error_message)
-        if status_dict is not None:
-            status_dict["status_line"] = error_message
-    finally:
-        completion_message = f"Viewbot session for {channel_name} has finished."
-        logger(completion_message)
-        if status_dict is not None:
-            status_dict["running"] = False
-            status_dict["status_line"] = completion_message
+        bot_status["running"] = False
+        bot_status["status_line"] = f"Error: {e}"
+        raise HTTPException(status_code=500, detail=f"Server error: {e}")
+
+@app.post("/api/stop")
+async def stop_bot(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    global bot_process, bot_stop_event
+
+    if not bot_process or not bot_process.is_alive():
+        raise HTTPException(status_code=400, detail="Bot is not running.")
+
+    if bot_stop_event:
+        bot_stop_event.set() # Signal the bot to stop
+    
+    # Give it a moment to shut down, then terminate if it hasn't
+    bot_process.join(timeout=15)
+    if bot_process.is_alive():
+        bot_process.terminate()
+
+    bot_process = None
+    bot_stop_event = None
+    
+    # Reset status
+    bot_status["running"] = False
+    bot_status["status_line"] = "Bot stopped."
+
+    return {"message": "Bot stopped successfully"}
+
+@app.get("/api/status")
+async def get_bot_status():
+    """Returns the current status of the bot."""
+    # The bot_status is a proxy object, so we convert it to a regular dict
+    return dict(bot_status)
+
+
+@app.post("/api/stop")
+async def stop_bot(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    # REMOVED: Permission check to allow any authenticated user to stop the bot.
+    # if user['level'] not in ['owner', 'pro']:
+    #     raise HTTPException(status_code=403, detail="You do not have permission to stop the bot.")
+        
+    global bot_process, bot_stop_event
+
+    if bot_process and bot_process.is_alive():
+        if bot_stop_event:
+            bot_stop_event.set() # Signal the process to stop
+        
+        bot_process.join(timeout=10) # Wait for a graceful shutdown
+
+        if bot_process.is_alive():
+            bot_process.terminate() # Force terminate if it doesn't stop
+            bot_process.join()
+
+        bot_process = None
+        bot_stop_event = None
+        return {"message": "Bot stopped successfully"}
+    else:
+        raise HTTPException(status_code=400, detail="Bot is not running")
+
+@app.post("/api/save-proxies")
+async def save_proxies(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    # REMOVED: Permission check to allow any authenticated user to save proxies.
+    # if not user or user.get('level') != 'owner':
+    #     raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    body = await request.json()
+    proxies = body.get("proxies")
+
+    # Define the path to proxies.txt in the same directory as the script
+    proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
+    
+    try:
+        with open(proxies_path, "w") as f:
+            f.write(proxies)
+        return {"message": f"Proxies saved successfully to {proxies_path}."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to save proxies: {e}')
+
+@app.get("/api/get-proxies")
+async def get_proxies(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
+    
+    try:
+        with open(proxies_path, "r") as f:
+            proxies_content = f.read()
+        return {"proxies": proxies_content}
+    except FileNotFoundError:
+        # If the file doesn't exist, return an empty string
+        return {"proxies": ""}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to read proxies: {e}')
+
+
+@app.get("/api/status")
+async def get_bot_status(user: dict = Depends(get_current_user)):
+    global bot_process, bot_start_time, bot_duration
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if bot_process and bot_process.is_alive():
+        status = "running"
+        elapsed_time = time.time() - bot_start_time
+        time_left = bot_duration - elapsed_time
+        if time_left < 0:
+            time_left = 0
+        
+        # Check if the process has finished on its own
+        if not bot_process.is_alive():
+            return {"status": "Idle", "message": "Bot has finished its run.", "time_left": "N/A"}
+
+        return {
+            "status": "Running",
+            "message": "Bot is currently active.",
+            "time_left": f"{int(time_left // 60)}m {int(time_left % 60)}s"
+        }
+    return {"status": "Idle", "message": "Bot is not running.", "time_left": "N/A"}
+
+
+# --- Serve Frontend ---
+# This single mount handles all static files (HTML, CSS, JS).
+# The `html=True` argument tells FastAPI to automatically serve `index.html` for the root path (`/`).
+# This replaces the previous, more complex setup.
+app.mount("/", StaticFiles(directory=".", html=True), name="static")
+
+
+# The if __name__ == "__main__" block has been removed.
+# The server must be started using run_server.py for multiprocessing to work correctly.
