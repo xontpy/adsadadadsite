@@ -147,13 +147,18 @@ async def connection_handler_async(logger, channel_id, index, initial_token, ini
                     await ws.send_json({"type": "ping"})
 
         except Exception:
+            # Connection lost, will be handled by the finally block
             pass
         finally:
+            # This block executes whether the connection succeeded and then broke,
+            # or if it failed to connect in the first place.
             connected_viewers_counter.discard(index)
-            token = None
+            token = None  # Force re-acquisition of a new token
             if not stop_event.is_set():
-                await asyncio.sleep(random.randint(5, 10))
+                # Wait a short, random time before trying to reconnect to avoid overwhelming the server
+                await asyncio.sleep(random.randint(1, 5))
 
+    # Final cleanup when the entire bot process is stopping
     connected_viewers_counter.discard(index)
 
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
