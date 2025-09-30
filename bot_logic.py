@@ -10,11 +10,16 @@ from curl_cffi import requests, AsyncSession
 
 def bot_logger(status_updater, message):
     """A simple logger that sends messages to the web UI."""
-    if status_updater:
-        status_updater.put(message)
-    else:
-        # Fallback to console if no updater is provided
-        sys.stdout.write(f"\r[{time.strftime('%H:%M:%S')}] {message}")
+    try:
+        if status_updater:
+            status_updater.put(message)
+        else:
+            # Fallback to console if no updater is provided
+            sys.stdout.write(f"\r[{time.strftime('%H:%M:%S')}] {message}")
+            sys.stdout.flush()
+    except Exception:
+        # If the UI queue fails, log to console to prevent a crash.
+        sys.stdout.write(f"\r[UI_LOG_FAIL] {message}")
         sys.stdout.flush()
 
 async def load_proxies_async(logger, file_path="proxies.txt"):
@@ -212,12 +217,13 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
     # --- Spawn viewer tasks ---
     viewer_tasks = []
     num_tokens = len(tokens_with_proxies)
+    logger(f"Spawning {num_tokens} viewer tasks...")
     for i, (token, proxy_url) in enumerate(tokens_with_proxies):
         task = asyncio.create_task(connection_handler_async(logger, channel_id, i, token, proxy_url, stop_event, proxies, connected_viewers))
         viewer_tasks.append(task)
-        # Log progress and yield control every 100 tasks to keep it fast but responsive.
-        if (i + 1) % 100 == 0 or (i + 1) == num_tokens:
-            await asyncio.sleep(0)
+        await asyncio.sleep(0.01) # Stagger task creation slightly
+
+    logger("All viewer tasks spawned.")
 
     # --- Main monitoring loop ---
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
