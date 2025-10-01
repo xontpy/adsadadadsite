@@ -242,18 +242,26 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
     if session['thread'].is_alive():
         elapsed_time = time.time() - session['start_time']
         duration = session.get('duration', 0)
-        remaining_time = max(0, duration - elapsed_time) if duration > 0 else float('inf')
-        progress = (elapsed_time / duration) * 100 if duration > 0 else 0
-
-        mins, secs = divmod(remaining_time, 60)
-        time_remaining_str = f"{int(mins):02d}:{int(secs):02d}" if duration > 0 else "Unlimited"
+        if duration > 0:
+            remaining_time = max(0, duration - elapsed_time)
+            progress = (elapsed_time / duration) * 100
+            mins, secs = divmod(remaining_time, 60)
+            time_remaining_str = f"{int(mins):02d}:{int(secs):02d}"
+        else:
+            remaining_time = float('inf')
+            progress = 0
+            time_remaining_str = "Unlimited"
 
         last_status = session.get('last_status', {})
+
+        total_duration_minutes = duration // 60 if duration > 0 else 0
+        total_duration_str = f"{total_duration_minutes} min" if total_duration_minutes > 0 else "Unlimited"
 
         return {
             "is_running": True,
             "current_viewers": last_status.get('current_viewers', 0),
             "target_viewers": session.get('target_viewers', 0),
+            "total_duration_str": total_duration_str,
             "time_remaining_str": time_remaining_str,
             "progress_percent": min(100, progress),
             "logs": list(session['logs'])
