@@ -143,66 +143,95 @@ async def connection_handler_async(logger, channel_id, index, stop_event, proxie
             if not stop_event.is_set():
                 await asyncio.sleep(random.randint(3, 7))
 
+    logger(f"[{index}] Viewer task stopped.")
     connected_viewers_counter.discard(index)
 
-def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, ramp_up_minutes):
+
+def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
     """The main async function to run the bot, adapted for the website."""
     logger = lambda msg: bot_logger(status_updater, msg)
     try:
-        logger("Starting bot logic...")
-        asyncio.run(run_bot_async(logger, stop_event, channel, viewers, duration_minutes, ramp_up_minutes))
-        logger("Bot logic finished.")
+        logger("Starting bot_logic.py main asyncio loop...")
+        asyncio.run(run_bot_async(logger, stop_event, channel, viewers, duration_minutes))
+        logger("bot_logic.py main asyncio loop finished successfully.")
     except Exception as e:
         detailed_error = traceback.format_exc()
         logger(f"An unexpected error occurred in the bot's core loop: {e}\nDetails:\n{detailed_error}")
-    finally:
         stop_event.set()
+    finally:
+        if not stop_event.is_set():
+            stop_event.set()
         logger("Bot process has stopped.")
 
-async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes, ramp_up_minutes):
+
+async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
     """The main async function to run the bot."""
+    logger("run_bot_async started.")
     duration_seconds = duration_minutes * 60
-    ramp_up_seconds = ramp_up_minutes * 60
 
     proxies = await load_proxies_async(logger)
     if not proxies:
+        logger("run_bot_async: No proxies loaded, returning.")
         return
 
     channel_id = await get_channel_id_async(logger, channel, proxies)
     if not channel_id:
+        logger("Failed to get channel ID. Halting.")
         return
 
     start_time = time.time()
     connected_viewers = set()
-    
-    viewer_tasks = []
+
+    logger(f"Spawning {viewers} viewer tasks...")
+    viewer_tasks = [
+        asyncio.create_task(connection_handler_async(logger, channel_id, i, stop_event, proxies, connected_viewers))
+        for i in range(viewers)
+    ]
+    logger(f"{len(viewer_tasks)} tasks spawned.")
 
     # --- Main monitoring loop ---
+    last_proxy_reload_time = time.time()
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
     while time.time() < end_time and not stop_event.is_set():
-        
-        # Ramp-up logic
-        elapsed_ramp_up = time.time() - start_time
-        if ramp_up_seconds > 0 and elapsed_ramp_up < ramp_up_seconds:
-            current_target_viewers = int(viewers * (elapsed_ramp_up / ramp_up_seconds))
+        # --- Proxy Health Check & Reload ---
+        # Reload proxies every 10 minutes if they seem to be failing.
+        if time.time() - last_proxy_reload_time > 600:
+            logger("Performing periodic proxy health check...")
+            # A simple health check: if view count is 0, try reloading proxies.
+            if len(connected_viewers) == 0 and viewers > 0:
+                logger("View count is 0, attempting to reload proxies to get a fresh list.")
+                new_proxies = await load_proxies_async(logger)
+                if new_proxies and new_proxies != proxies:
+                    proxies = new_proxies
+                    # To apply the new proxies, we must restart the viewer tasks.
+                    logger("Restarting all viewer tasks to apply new proxies...")
+                    for task in viewer_tasks:
+                        task.cancel()
+                    await asyncio.gather(*viewer_tasks, return_exceptions=True)
+                    
+                    viewer_tasks = [
+                        asyncio.create_task(connection_handler_async(logger, channel_id, i, stop_event, proxies, connected_viewers))
+                        for i in range(viewers)
+                    ]
+                    logger(f"{len(viewer_tasks)} viewer tasks have been restarted.")
+                else:
+                    logger("Proxy reload did not yield a new list. Continuing with current proxies.")
+            last_proxy_reload_time = time.time()
+
+        if duration_seconds > 0:
+            remaining = end_time - time.time()
+            mins, secs = divmod(remaining, 60)
+            status_line = f"Time Left: {int(mins):02d}:{int(secs):02d} | Sending Views: {len(connected_viewers)}/{viewers}"
         else:
-            current_target_viewers = viewers
-
-        # Adjust viewer tasks based on current target
-        while len(viewer_tasks) < current_target_viewers:
-            task_index = len(viewer_tasks)
-            task = asyncio.create_task(connection_handler_async(logger, channel_id, task_index, stop_event, proxies, connected_viewers))
-            viewer_tasks.append(task)
-
-        status_payload = {
-            'current_viewers': len(connected_viewers),
-            'target_viewers': viewers
-        }
-        logger(status_payload)
-        
+            status_line = f"Sending Views: {len(connected_viewers)}/{viewers} (Running indefinitely)"
+        logger(status_line)
         await asyncio.sleep(1)
 
     # --- Shutdown sequence ---
-    stop_event.set()
+    if not stop_event.is_set():
+        logger("Timer finished. Stopping viewers...")
+        stop_event.set()
+    
     await asyncio.gather(*viewer_tasks, return_exceptions=True)
     logger("All viewers have been stopped.")
+    logger("run_bot_async finished.")
