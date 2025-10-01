@@ -68,13 +68,13 @@ def pick_proxy(logger, proxies_list):
 def get_channel_id(logger, channel_name=None, proxies_list=None):
     """Gets the channel ID using synchronous requests (SYNC)."""
     for _ in range(5):
-        s = requests.Session()
+        s = requests.Session(impersonate="chrome")
         proxy_dict, _ = pick_proxy(logger, proxies_list)
         if not proxy_dict:
             continue
         s.proxies = proxy_dict
         try:
-            r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
+            r = s.get(f"https://kick.com/api/v1/channels/{channel_name}", timeout=5)
             if r.status_code == 200:
                 return r.json().get("id")
             else:
@@ -84,8 +84,8 @@ def get_channel_id(logger, channel_name=None, proxies_list=None):
         time.sleep(1)
     logger("Failed to get channel ID after multiple retries with proxies. Retrying without proxy...")
     try:
-        s = requests.Session()
-        r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
+        s = requests.Session(impersonate="chrome")
+        r = s.get(f"https://kick.com/api/v1/channels/{channel_name}", timeout=5)
         if r.status_code == 200:
             channel_id = r.json().get("id")
             if channel_id:
