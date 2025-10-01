@@ -55,9 +55,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Show the correct page based on the active menu item and bot state
         if (activePage === 'viewbot') {
-            if (botState === 'running' || botState === 'starting' || botState === 'stopping') {
+            if (botState === 'running' || botState === 'starting' || botState === 'stopping' || botState === 'ended') {
                 if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'block';
-            } else { // idle or ended
+            } else { // idle
                 if (viewbotControlsScreen) viewbotControlsScreen.style.display = 'block';
             }
         } else if (activePage === 'settings') {
@@ -155,6 +155,11 @@ document.addEventListener('DOMContentLoaded', () => {
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
+        // Hide stop button if bot not running
+        if (stopBotButton) {
+            stopBotButton.style.display = status.is_running ? 'flex' : 'none';
+        }
+
         // Ensure menu items are always enabled
         const menuItems = document.querySelectorAll('.menu-item');
         menuItems.forEach(item => {
@@ -188,14 +193,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else { // Bot is not running
                     if (botState === 'running' || botState === 'stopping') {
                         botState = 'ended';
-                        if(viewsEndedModal) viewsEndedModal.style.display = 'flex';
                     }
                     stopPolling();
                 }
             } else {
                 if (botState === 'running') {
                     botState = 'ended';
-                    if(viewsEndedModal) viewsEndedModal.style.display = 'flex';
                 }
                 stopPolling();
             }
