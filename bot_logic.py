@@ -230,9 +230,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         logger(f"Sending {viewers} views to {channel}")
         # Start viewer threads
         if rapid:
-            # Rapid mode: Start in smaller batches for stability
-            batch_size = 20
-            batch_delay = 10
+            # Rapid mode: Start in small batches for server stability
+            batch_size = 5
+            batch_delay = 20
             for i in range(0, viewers, batch_size):
                 if stop_event.is_set():
                     break
@@ -246,9 +246,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                     t.start()
                 time.sleep(batch_delay)
         else:
-            # Stable mode: Start in moderate batches
-            batch_size = 25
-            batch_delay = 15
+            # Stable mode: Start in small batches for stability
+            batch_size = 5
+            batch_delay = 30
             for i in range(0, viewers, batch_size):
                 if stop_event.is_set():
                     break
