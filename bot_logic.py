@@ -167,10 +167,15 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
     This function orchestrates the bot based on the logic from main(2).py's `if __name__ == "__main__"` block.
     """
     logger = lambda msg: bot_logger(status_updater, msg)
-    
+
+    # Initialize timing variables before try block to avoid UnboundLocalError in finally
+    start_time = time.time()
+    duration_seconds = duration_minutes * 60 if duration_minutes > 0 else float('inf')
+    end_time = start_time + duration_seconds
+
     try:
         logger("Initializing bot with logic from main(2).py...")
-        
+
         proxies = load_proxies(logger)
         if not proxies:
             logger("Halting: No proxies loaded.")
@@ -219,9 +224,6 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         # --- Monitoring Loop ---
         # This part is an adaptation for the web UI. It checks the stop request,
         # running indefinitely until stopped (no timer like original script).
-        start_time = time.time()
-        duration_seconds = duration_minutes * 60 if duration_minutes > 0 else float('inf')
-        end_time = start_time + duration_seconds
 
         while not stop_event.is_set():
             if duration_minutes > 0 and time.time() >= end_time:
