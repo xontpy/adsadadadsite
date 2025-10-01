@@ -79,9 +79,9 @@ def get_channel_id(logger, channel_name, proxies_list):
                     logger(f"Successfully found channel ID for {channel_name}.")
                     return r.json().get("id")
                 else:
-                    logger(f"Channel ID (Status: {r.status_code}), retrying...")
+                    pass
         except Exception as e:
-            logger(f"Channel ID (Error: {e}), retrying...")
+            pass
         time.sleep(1)
     logger("Failed to get channel ID after multiple attempts.")
     return None
@@ -102,9 +102,9 @@ def get_token(logger, proxies_list):
                     token = r.json()["data"]["token"]
                     return token, proxy_url
                 else:
-                    logger(f"Token (Status: {r.status_code}), retrying...")
+                    pass  # logger(f"Token (Status: {r.status_code}), retrying...")
         except Exception as e:
-            logger(f"Token (Error: {e}), retrying...")
+            pass  # logger(f"Token (Error: {e}), retrying...")
         time.sleep(1)
     return None, None
 
@@ -197,6 +197,13 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                 threads.append(t)
                 t.start()
                 time.sleep(0.05)  # Small stagger within batch
+            # Update status immediately after batch start
+            status_update = {
+                "current_viewers": len(connected_viewers),
+                "target_viewers": viewers,
+                "is_running": True
+            }
+            logger(status_update)
             # Wait between batches to allow connections to establish
             time.sleep(2)
 
