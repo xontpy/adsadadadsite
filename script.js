@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const durationValue = document.getElementById('duration-value');
     const viewerSpeedInput = document.getElementById('viewer-speed-input');
     const viewerSpeedValue = document.getElementById('viewer-speed-value');
+    const batchSizeInput = document.getElementById('batch-size-input');
 
     // Status screen elements
     const activeViewersSpan = document.getElementById('active-viewers');
@@ -154,6 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const views = parseInt(viewersSlider.value, 10);
         const duration = parseInt(durationSlider.value, 10);
         const viewerSpeed = parseFloat(viewerSpeedInput.value);
+        const batchSize = parseInt(batchSizeInput.value, 10);
 
         if (!channel) {
             alert('Please enter a channel name.');
@@ -175,7 +177,8 @@ document.addEventListener('DOMContentLoaded', () => {
             channel: channel,
             views: views,
             duration: duration,
-            viewer_speed: viewerSpeed
+            viewer_speed: viewerSpeed,
+            batch_size: batchSize
         };
 
         try {
