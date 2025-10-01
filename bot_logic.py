@@ -101,7 +101,7 @@ def get_token(logger, proxies_list):
         time.sleep(1)
     return None, None
 
-def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers, proxies_list):
+def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers, proxies_list, total_viewers):
     """The main logic for a single viewer thread."""
     
     async def connection_handler():
@@ -118,6 +118,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
                     ws = await s.ws_connect(ws_url, timeout=15)
                     connected_viewers.add(index)
                     logger(f"Viewer {index} connected.")
+                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers, "is_running": True})
                     
                     counter = 0
                     while not stop_event.is_set():
@@ -137,6 +138,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
                 connected_viewers.discard(index)
                 if not stop_event.is_set():
                      logger(f"Viewer {index} disconnected.")
+                logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers, "is_running": not stop_event.is_set()})
 
     try:
         asyncio.run(connection_handler())
@@ -168,7 +170,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         for i in range(viewers):
             if stop_event.is_set():
                 break
-            t = threading.Thread(target=start_connection_thread, args=(logger, channel_id, i + 1, stop_event, connected_viewers, proxies))
+            t = threading.Thread(target=start_connection_thread, args=(logger, channel_id, i + 1, stop_event, connected_viewers, proxies, viewers))
             threads.append(t)
             t.start()
             time.sleep(0.1)
