@@ -193,9 +193,12 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             # Clean up dead threads from the list
             threads = [t for t in threads if t.is_alive()]
 
-            # If we need more viewers, spawn one and loop again.
-            # This creates threads quickly but yields control frequently.
-            if len(threads) < viewers:
+            # If we need more viewers, spawn them.
+            # This approach ensures we always try to maintain the target viewer count.
+            needed = viewers - len(threads)
+            for _ in range(needed):
+                if stop_event.is_set():
+                    break
                 thread_counter += 1
                 t = threading.Thread(
                     target=start_connection_thread,
@@ -211,18 +214,28 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             }
             logger(status_update)
             
-            # Sleep for a short interval. During ramp-up, this loop will be very active.
-            # Once all threads are spawned, it becomes a less frequent check.
-            time.sleep(0.1)
+            # Sleep for a longer, more stable interval.
+            time.sleep(5)
 
     except Exception as e:
         detailed_error = traceback.format_exc()
         logger(f"An unexpected error occurred in the bot's core loop: {e}\nDetails:\n{detailed_error}")
     finally:
+        # Determine shutdown reason for clearer logging
+        shutdown_reason = "an unknown error occurred"
+        if stop_event.is_set():
+            # This means the stop was initiated from the server/UI
+            shutdown_reason = "stop request received"
+        elif duration_seconds > 0 and time.time() >= end_time:
+            # This means the bot ran for its full duration
+            shutdown_reason = "timer finished"
+
+        logger(f"Shutting down ({shutdown_reason}). Stopping viewers...")
+        
         if not stop_event.is_set():
-            logger("Timer finished or stop requested. Stopping viewers...")
             stop_event.set()
         
+        # Wait for all threads to finish
         for t in threads:
             t.join(timeout=5)
             
