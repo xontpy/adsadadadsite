@@ -31,6 +31,42 @@ body {
     overflow: hidden;
 }
 
+/* Light Theme */
+body.light {
+    --background-color: #f5f5f5;
+    --sidebar-bg: #ffffff;
+    --main-bg: #ffffff;
+    --primary-green: #00B14F;
+    --text-primary: #1a1a1a;
+    --text-secondary: #666666;
+    --border-color: #e0e0e0;
+    --input-bg: #f8f9fa;
+    --slider-track: #dee2e6;
+    --stop-red: #dc3545;
+    --stop-red-hover: #c82333;
+}
+
+body.light .container {
+    background-color: rgba(255, 255, 255, 0.95);
+    border: 1px solid #e0e0e0;
+}
+
+body.light .sidebar {
+    background-color: rgba(255, 255, 255, 0.9);
+    border-right: 1px solid #e0e0e0;
+}
+
+body.light .modal-content {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e0;
+}
+
+body.light .logs-container {
+    background-color: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    color: #1a1a1a;
+}
+
 .modal-overlay {
     position: fixed;
     top: 0;
