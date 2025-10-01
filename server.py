@@ -6,7 +6,7 @@ import psutil
 import time
 import requests
 import sys
-from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
@@ -286,3 +286,10 @@ async def get_proxies(user: dict = Depends(get_current_user)):
 
 # --- Serve Frontend ---
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
+
+
+# --- Environment Setup ---
+# This is the crucial fix: By setting this environment variable, we are telling the OAuth
+# library that it's acceptable to handle redirects over plain HTTP. This is safe and
+# necessary for a local development environment that isn't running with a TLS certificate.
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
