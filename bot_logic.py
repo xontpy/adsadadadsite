@@ -64,24 +64,24 @@ def pick_proxy(logger, proxies_list):
         logger(f"Proxy error: {proxy}, {e}")
         return None, None
 
-def get_channel_id(logger, channel_name, proxies_list):
-    """Gets the channel ID using a synchronous request."""
-    max_attempts = 5
-    for attempt in range(max_attempts):
+def get_channel_id(logger, channel_name=None, proxies_list=None):
+    """Gets the channel ID using synchronous requests (SYNC)."""
+    for _ in range(5):
+        s = requests.Session(impersonate="firefox135")
         proxy_dict, _ = pick_proxy(logger, proxies_list)
+        if not proxy_dict:
+            continue
+        s.proxies = proxy_dict
         try:
-            session_kwargs = {"impersonate": "firefox135", "timeout": 10}
-            if proxy_dict:
-                session_kwargs["proxies"] = proxy_dict
-            with requests.Session(**session_kwargs) as s:
-                r = s.get(f"https://kick.com/api/v2/channels/{channel_name}")
-                if r.status_code == 200:
-                    logger(f"Successfully found channel ID for {channel_name}.")
-                    return r.json().get("id")
+            r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
+            if r.status_code == 200:
+                return r.json().get("id")
+            else:
+                logger(f"Channel ID: {r.status_code}, retrying...")
         except Exception as e:
-            pass
+            logger(f"Channel ID error: {e}, retrying...")
         time.sleep(1)
-    logger("Failed to get channel ID after multiple attempts.")
+    logger("Failed to get channel ID after multiple retries.")
     return None
 
 def get_token(logger, proxies_list):
