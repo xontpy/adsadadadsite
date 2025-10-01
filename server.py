@@ -6,9 +6,8 @@ import os
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 import asyncio
-import multiprocessing
-from multiprocessing import Process, Queue, Event
-import psutil
+import threading
+import queue
 import time
 import requests
 import sys
@@ -62,7 +61,6 @@ ROLE_PERMISSIONS = {
 }
 
 # --- Bot State Management ---
-manager = multiprocessing.Manager()
 user_bot_sessions = {}
 
 # --- User Data Cache ---
@@ -121,16 +119,22 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 # --- API Endpoints ---
 
 @app.get("/login")
-def login_with_discord():
-    return RedirectResponse(f"https://discord.com/api/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&redirect_uri={DISCORD_REDIRECT_URI}&response_type=code&scope=identify%20guilds.members.read")
+def login_with_discord(request: Request):
+    # Dynamically build redirect_uri based on current request
+    port = f":{request.url.port}" if request.url.port and request.url.port != 80 and request.url.port != 443 else ""
+    redirect_uri = f"{request.url.scheme}://{request.url.hostname}{port}/callback"
+    return RedirectResponse(f"https://discord.com/api/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&redirect_uri={redirect_uri}&response_type=code&scope=identify%20guilds.members.read")
 
 @app.get("/callback")
-async def callback(code: str):
+async def callback(code: str, request: Request):
     if not code:
         return JSONResponse({"error": "No code provided"}, status_code=400)
+    # Dynamically build redirect_uri based on current request
+    port = f":{request.url.port}" if request.url.port and request.url.port != 80 and request.url.port != 443 else ""
+    redirect_uri = f"{request.url.scheme}://{request.url.hostname}{port}/callback"
     token_data = {
         'client_id': DISCORD_CLIENT_ID, 'client_secret': DISCORD_CLIENT_SECRET,
-        'grant_type': 'authorization_code', 'code': code, 'redirect_uri': DISCORD_REDIRECT_URI,
+        'grant_type': 'authorization_code', 'code': code, 'redirect_uri': redirect_uri,
     }
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
     try:
@@ -158,28 +162,25 @@ async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_u
 
     user_id = user['id']
 
-    if user_id in user_bot_sessions and psutil.pid_exists(user_bot_sessions[user_id].get('pid', -1)):
+    session = user_bot_sessions.get(user_id)
+    if session and session['thread'].is_alive():
         raise HTTPException(status_code=400, detail="You already have a bot running.")
 
     if payload.views > user.get('max_views', 0):
         raise HTTPException(status_code=403, detail=f"You are not allowed to start more than {user.get('max_views', 0)} views.")
 
     try:
-        duration_seconds = payload.duration * 60
-        stop_event = multiprocessing.Event()
-        status_dict = manager.dict({"running": True, "status_line": "Initializing..."})
+        stop_event = threading.Event()
+        status_queue = queue.Queue()
 
-        status_queue = manager.Queue()
-
-        process = multiprocessing.Process(
-            target=run_viewbot_logic, 
+        thread = threading.Thread(
+            target=run_viewbot_logic,
             args=(status_queue, stop_event, payload.channel, payload.views, payload.duration)
         )
-        process.start()
+        thread.start()
 
-        # Store the PID and status queue for the user
         user_bot_sessions[user_id] = {
-            'pid': process.pid,
+            'thread': thread,
             'stop_event': stop_event,
             'status_queue': status_queue,
             'last_status': {"is_running": True, "status_line": "Initializing..."},
@@ -203,20 +204,16 @@ async def stop_bot(user: dict = Depends(get_current_user)):
     user_id = user['id']
     session = user_bot_sessions.get(user_id)
 
-    if session and psutil.pid_exists(session['pid']):
+    if session and session['thread'].is_alive():
         try:
-            proc = psutil.Process(session['pid'])
             session['stop_event'].set()
-            proc.join(timeout=10)
-            if proc.is_running():
-                proc.terminate()
-                proc.join()
-        except psutil.NoSuchProcess:
+            session['thread'].join(timeout=10)
+        except Exception:
             pass
         finally:
             if user_id in user_bot_sessions:
                 del user_bot_sessions[user_id]
-        
+
         return {"message": "Bot stopped successfully"}
     else:
         if user_id in user_bot_sessions:
@@ -226,42 +223,47 @@ async def stop_bot(user: dict = Depends(get_current_user)):
 @app.get("/api/status")
 async def get_bot_status(user: dict = Depends(get_current_user)):
     if not user:
-        return {"is_running": False, "status_line": "Not logged in.", "logs": []}
+        return {"is_running": False, "logs": []}
 
     user_id = user['id']
     session = user_bot_sessions.get(user_id)
 
-    if session and psutil.pid_exists(session.get('pid', -1)):
-        while not session['status_queue'].empty():
-            message = session['status_queue'].get_nowait()
-            if isinstance(message, dict) and 'log_line' in message:
-                session['logs'].append(message['log_line'])
-            else:
-                session['last_status'] = message
-        
+    if not session:
+        return {"is_running": False, "logs": []}
+
+    # Always drain the queue to get the latest messages
+    while not session['status_queue'].empty():
+        message = session['status_queue'].get_nowait()
+        if isinstance(message, dict) and 'log_line' in message:
+            session['logs'].append(message['log_line'])
+        else:
+            session['last_status'] = message
+
+    if session['thread'].is_alive():
         elapsed_time = time.time() - session['start_time']
-        remaining_time = max(0, session['duration'] - elapsed_time)
-        progress = (elapsed_time / session['duration']) * 100 if session['duration'] > 0 else 0
-        
+        duration = session.get('duration', 0)
+        remaining_time = max(0, duration - elapsed_time) if duration > 0 else float('inf')
+        progress = (elapsed_time / duration) * 100 if duration > 0 else 0
+
         mins, secs = divmod(remaining_time, 60)
-        time_remaining_str = f"{int(mins):02d}:{int(secs):02d}"
+        time_remaining_str = f"{int(mins):02d}:{int(secs):02d}" if duration > 0 else "Unlimited"
 
         last_status = session.get('last_status', {})
-        
+
         return {
             "is_running": True,
             "current_viewers": last_status.get('current_viewers', 0),
             "target_viewers": session.get('target_viewers', 0),
-            "time_elapsed_str": time_remaining_str,
+            "time_remaining_str": time_remaining_str,
             "progress_percent": min(100, progress),
             "logs": list(session['logs'])
         }
     else:
+        # The thread is dead, clean up the session and return final status
         if user_id in user_bot_sessions:
-            session = user_bot_sessions.pop(user_id)
-            logs = list(session.get('logs', []))
-            return {"is_running": False, "logs": logs}
-        return {"is_running": False, "logs": []}
+            del user_bot_sessions[user_id]
+
+        return {"is_running": False, "logs": list(session['logs'])}
 
 @app.post("/api/save-proxies")
 async def save_proxies(payload: ProxiesSaveRequest, user: dict = Depends(get_current_user)):
