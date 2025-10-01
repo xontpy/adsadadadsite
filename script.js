@@ -12,8 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const premiumPlanBanner = document.querySelector('.premium-plan');
 
     const menuItems = document.querySelectorAll('.menu-item');
-    const viewbotControlsScreen = document.querySelector('.viewbot-controls');
-    const viewbotStatusScreen = document.querySelector('.viewbot-status');
+    const viewbotControlsScreen = document.getElementById('viewbot-page');
+    const viewbotStatusScreen = document.getElementById('viewbot-status-page');
     const viewsEndedScreen = document.querySelector('.views-ended-status');
     const settingsPage = document.getElementById('settings-page');
     const logsPage = document.getElementById('logs-page');
