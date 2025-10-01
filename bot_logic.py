@@ -208,6 +208,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         end_time = start_time + duration_seconds
 
         while not stop_event.is_set():
+            if duration_minutes > 0 and time.time() >= end_time:
+                stop_event.set()
+                break
             try:
                 # Update the UI with the latest status
                 status_update = {
