@@ -26,6 +26,7 @@ class StartBotPayload(BaseModel):
     channel: str
     views: int
     duration: int
+    rapid: bool = False
 
 class ProxiesSaveRequest(BaseModel):
     proxies: str
@@ -175,7 +176,7 @@ async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_u
 
         thread = threading.Thread(
             target=run_viewbot_logic,
-            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration)
+            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration, payload.rapid)
         )
         thread.start()
 
