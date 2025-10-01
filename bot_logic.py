@@ -68,7 +68,7 @@ def pick_proxy(logger, proxies_list):
 def get_channel_id(logger, channel_name=None, proxies_list=None):
     """Gets the channel ID using synchronous requests (SYNC)."""
     for _ in range(5):
-        s = requests.Session(impersonate="chrome")
+        s = requests.Session()
         proxy_dict, _ = pick_proxy(logger, proxies_list)
         if not proxy_dict:
             continue
@@ -84,7 +84,7 @@ def get_channel_id(logger, channel_name=None, proxies_list=None):
         time.sleep(1)
     logger("Failed to get channel ID after multiple retries with proxies. Retrying without proxy...")
     try:
-        s = requests.Session(impersonate="chrome")
+        s = requests.Session()
         r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
         if r.status_code == 200:
             channel_id = r.json().get("id")
@@ -102,7 +102,7 @@ def get_token(logger, proxies_list):
     for attempt in range(max_attempts):
         proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
         try:
-            session_kwargs = {"impersonate": "chrome", "timeout": 15}
+            session_kwargs = {"timeout": 15}
             if proxy_dict:
                 session_kwargs["proxies"] = proxy_dict
             with requests.Session(**session_kwargs) as s:
@@ -119,7 +119,7 @@ def get_token(logger, proxies_list):
         time.sleep(1)
     logger("Failed to get token after proxy retries. Retrying without proxy...")
     try:
-        session_kwargs = {"impersonate": "chrome", "timeout": 15}
+        session_kwargs = {"timeout": 15}
         with requests.Session(**session_kwargs) as s:
             r_kick = s.get("https://kick.com")
             client_token_match = re.search(r'"clientToken"\s*:\s*"([^"]+)"', r_kick.text)
@@ -230,9 +230,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         logger(f"Sending {viewers} views to {channel}")
         # Start viewer threads
         if rapid:
-            # Rapid mode: Start in big batches for speed with some delay to avoid crashing
-            batch_size = 50
-            batch_delay = 5
+            # Rapid mode: Start in smaller batches for stability
+            batch_size = 20
+            batch_delay = 10
             for i in range(0, viewers, batch_size):
                 if stop_event.is_set():
                     break
@@ -246,9 +246,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                     t.start()
                 time.sleep(batch_delay)
         else:
-            # Stable mode: Start in big batches to avoid detection and crashing
-            batch_size = 50
-            batch_delay = 10
+            # Stable mode: Start in moderate batches
+            batch_size = 25
+            batch_delay = 15
             for i in range(0, viewers, batch_size):
                 if stop_event.is_set():
                     break
@@ -282,7 +282,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                 except Exception as e:
                     logger(f"Error updating status: {e}")
                 try:
-                    time.sleep(15)  # Less frequent updates to reduce load
+                    time.sleep(30)  # Less frequent updates to reduce load
                 except Exception:
                     break
             except Exception as e:
