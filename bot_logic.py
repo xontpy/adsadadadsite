@@ -119,7 +119,6 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
         while not stop_event.is_set():
             token, proxy_url = get_token(logger, proxies_list)
             if not token:
-                logger(f"Viewer {index}: Failed to get token, retrying in 5s...")
                 await asyncio.sleep(5)
                 continue
 
@@ -131,8 +130,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                     
                     # --- Viewer Connected ---
                     connected_viewers.add(index)
-                    logger(f"Viewer {index} connected.")
-                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
+                    # Removed individual connect logs to reduce spam
                     
                     counter = 0
                     while not stop_event.is_set():
@@ -143,15 +141,10 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                         await asyncio.sleep(11 + random.randint(2, 7))
 
             except Exception as e:
-                logger(f"Viewer {index} error: {e}. Retrying...")
+                pass  # Silent retry on error
             finally:
                 # --- Viewer Disconnected ---
-                was_connected = index in connected_viewers
                 connected_viewers.discard(index)
-                if was_connected and not stop_event.is_set():
-                     logger(f"Viewer {index} disconnected.")
-                     # Update UI immediately on disconnect
-                     logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
 
             # Wait before retrying connection if the bot is still running
             if not stop_event.is_set():
@@ -187,18 +180,25 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         connected_viewers = set()
         threads = []
 
-        # Start all viewer threads at once
-        for i in range(viewers):
+        # Start viewer threads in batches to avoid overwhelming the system
+        batch_size = 50
+        for batch_start in range(0, viewers, batch_size):
             if stop_event.is_set():
                 break
-            t = threading.Thread(
-                target=start_connection_thread,
-                args=(logger, channel_id, i + 1, stop_event, proxies, connected_viewers, viewers)
-            )
-            threads.append(t)
-            t.start()
-            # Stagger thread starts slightly to avoid initial resource spike
-            time.sleep(0.05)
+            batch_end = min(batch_start + batch_size, viewers)
+            logger(f"Starting batch {batch_start // batch_size + 1}: threads {batch_start + 1} to {batch_end}")
+            for i in range(batch_start, batch_end):
+                if stop_event.is_set():
+                    break
+                t = threading.Thread(
+                    target=start_connection_thread,
+                    args=(logger, channel_id, i + 1, stop_event, proxies, connected_viewers, viewers)
+                )
+                threads.append(t)
+                t.start()
+                time.sleep(0.05)  # Small stagger within batch
+            # Wait between batches to allow connections to establish
+            time.sleep(2)
 
         # --- Monitoring Loop ---
         # This part is an adaptation for the web UI. It checks the timer and stop request,
@@ -215,7 +215,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                 "is_running": True
             }
             logger(status_update)
-            time.sleep(5)
+            time.sleep(10)  # Less frequent updates to reduce load
 
     except Exception as e:
         detailed_error = traceback.format_exc()
