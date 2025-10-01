@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Status screen elements
     const activeViewersSpan = document.getElementById('active-viewers');
-    const timeElapsedSpan = document.getElementById('time-elapsed');
+    const timeRemainingSpan = document.getElementById('time-remaining');
     const progressBar = document.getElementById('progress-bar');
     const progressPercentSpan = document.getElementById('progress-percent');
 
@@ -41,6 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- State ---
     let isBotRunning = false;
     let statusInterval;
+    let durationInterval;
+    let timeRemaining = 0;
 
     // --- Event Listeners ---
     if (viewersSlider && viewersCount) {
@@ -227,6 +229,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (response.ok) {
                 isBotRunning = true;
+                timeRemaining = parseInt(duration) * 60;
+                updateStatusDisplay({ target_viewers: viewers });
+                startDurationTimer();
                 showPage('viewbot');
                 pollStatus();
             } else {
@@ -255,6 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             if (response.ok) {
                 isBotRunning = false;
+                stopDurationTimer();
                 showPage('viewbot');
                 if (statusInterval) clearInterval(statusInterval);
             } else {
@@ -272,6 +278,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (statusInterval) clearInterval(statusInterval);
         
         statusInterval = setInterval(async () => {
+            if (!isBotRunning) {
+                clearInterval(statusInterval);
+                return;
+            }
+
             const token = localStorage.getItem('accessToken');
             if (!token) {
                 clearInterval(statusInterval);
@@ -285,10 +296,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (response.status === 401) {
                         localStorage.removeItem('accessToken');
                         showLoginState();
-                        clearInterval(statusInterval);
                     }
                     isBotRunning = false;
+                    stopDurationTimer();
                     showPage('viewbot');
+                    clearInterval(statusInterval);
                     return;
                 }
                 
@@ -296,9 +308,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 isBotRunning = status.is_running;
 
                 if (isBotRunning) {
-                    showPage('viewbot');
                     updateStatusDisplay(status);
                 } else {
+                    stopDurationTimer();
                     showPage('viewbot');
                     clearInterval(statusInterval);
                 }
@@ -306,20 +318,43 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (error) {
                 console.error('Polling error:', error.message);
                 isBotRunning = false;
+                stopDurationTimer();
                 showPage('viewbot');
                 clearInterval(statusInterval);
             }
         }, 2000); // Poll every 2 seconds
     }
 
+    function startDurationTimer() {
+        if (durationInterval) clearInterval(durationInterval);
+        durationInterval = setInterval(() => {
+            timeRemaining--;
+            if (timeRemaining < 0) {
+                timeRemaining = 0;
+                clearInterval(durationInterval);
+            }
+            updateTimerDisplay();
+        }, 1000);
+    }
+
+    function stopDurationTimer() {
+        if (durationInterval) clearInterval(durationInterval);
+    }
+
+    function updateTimerDisplay() {
+        const minutes = Math.floor(timeRemaining / 60);
+        const seconds = timeRemaining % 60;
+        if (timeRemainingSpan) {
+            timeRemainingSpan.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+    }
+
     function updateStatusDisplay(status) {
-        const targetViewers = status.target_viewers || 0;
+        const targetViewers = status.target_viewers || viewersSlider.value;
         const currentViewers = status.current_viewers || 0;
-        const timeElapsed = status.time_elapsed_str || '00:00';
         const progress = status.progress_percent || 0;
 
         if (activeViewersSpan) activeViewersSpan.textContent = `${currentViewers} / ${targetViewers}`;
-        if (timeElapsedSpan) timeElapsedSpan.textContent = timeElapsed;
         if (progressBar) progressBar.style.width = `${progress}%`;
         if (progressPercentSpan) progressPercentSpan.textContent = `${Math.round(progress)}%`;
     }
