@@ -190,7 +190,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         # Start viewer threads in batches to avoid detection
         if rapid:
             batch_size = 10
-            batch_delay = 0.05
+            batch_delay = 0
         else:
             batch_size = 10
             batch_delay = 5
