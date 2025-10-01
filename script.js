@@ -12,11 +12,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const premiumPlanBanner = document.querySelector('.premium-plan');
 
     const menuItems = document.querySelectorAll('.menu-item');
-    const viewbotControlsScreen = document.getElementById('viewbot-page');
-    const viewbotStatusScreen = document.getElementById('viewbot-status-page');
-    const viewsEndedScreen = document.querySelector('.views-ended-status');
+    const viewbotControlsScreen = document.querySelector('.viewbot-controls');
+    const viewbotStatusScreen = document.querySelector('.viewbot-status');
+    const viewsEndedModal = document.getElementById('views-ended-modal');
     const settingsPage = document.getElementById('settings-page');
     const logsPage = document.getElementById('logs-page');
+    const supportPage = document.getElementById('support-page');
 
     const startBtn = document.getElementById('start-btn');
     const stopBotButton = document.getElementById('stop-bot-button');
@@ -35,7 +36,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const progressBar = document.getElementById('progress-bar');
     const progressPercent = document.getElementById('progress-percent');
     const logContainer = document.getElementById('logs-content');
-    const finalViewersSpan = document.getElementById('final-viewers-count');
 
     // --- State Variables ---
     let statusPollInterval;
@@ -46,25 +46,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function showCorrectScreen() {
         // Hide all pages first
-        viewbotControlsScreen.style.display = 'none';
-        viewbotStatusScreen.style.display = 'none';
-        viewsEndedScreen.style.display = 'none';
-        settingsPage.style.display = 'none';
-        logsPage.style.display = 'none';
+        if (viewbotControlsScreen) viewbotControlsScreen.style.display = 'none';
+        if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'none';
+        if (settingsPage) settingsPage.style.display = 'none';
+        if (logsPage) logsPage.style.display = 'none';
+        if (supportPage) supportPage.style.display = 'none';
 
         // Show the correct page based on the active menu item and bot state
         if (activePage === 'viewbot') {
             if (botState === 'running' || botState === 'starting' || botState === 'stopping') {
-                viewbotStatusScreen.style.display = 'block';
-            } else if (botState === 'ended') {
-                viewsEndedScreen.style.display = 'block';
-            } else { // idle
-                viewbotControlsScreen.style.display = 'block';
+                if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'block';
+            } else { // idle or ended
+                if (viewbotControlsScreen) viewbotControlsScreen.style.display = 'block';
             }
         } else if (activePage === 'settings') {
-            settingsPage.style.display = 'block';
+            if (settingsPage) settingsPage.style.display = 'block';
         } else if (activePage === 'logs') {
-            logsPage.style.display = 'block';
+            if (logsPage) logsPage.style.display = 'block';
+        } else if (activePage === 'support') {
+            if (supportPage) supportPage.style.display = 'block';
         }
     }
 
@@ -110,6 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (loginButton) loginButton.style.display = 'block';
         if (userProfile) userProfile.style.display = 'none';
         if (premiumPlanBanner) premiumPlanBanner.style.display = 'none';
+        showCorrectScreen();
     }
 
     function showLoggedInState(user) {
@@ -122,6 +123,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (user.is_premium && premiumPlanBanner) {
             premiumPlanBanner.style.display = 'flex';
+        } else if (premiumPlanBanner) {
+            premiumPlanBanner.style.display = 'none';
         }
         if (userAvatar) userAvatar.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`;
 
@@ -132,14 +135,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if(viewersValue) viewersValue.textContent = viewersSlider.value;
         }
+        showCorrectScreen();
     }
 
     function updateStatusUI(status) {
         if (!status) return;
 
-        activeViewersSpan.textContent = status.current_viewers || 0;
-        targetViewersSpan.textContent = status.target_viewers || 0;
-        timeRemainingSpan.textContent = status.time_elapsed_str || '00:00';
+        if(activeViewersSpan) activeViewersSpan.textContent = `${status.current_viewers || 0} / ${status.target_viewers || 0}`;
+        if(timeRemainingSpan) timeRemainingSpan.textContent = status.time_elapsed_str || '00:00';
 
         const progress = status.progress_percent || 0;
         if(progressBar) progressBar.style.width = `${progress}%`;
@@ -171,20 +174,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (status.is_running) {
                     if (botState === 'idle' || botState === 'ended') {
                         botState = 'running';
-                        startPolling(); // Start continuous polling if bot is running
+                        startPolling();
                     }
                 } else { // Bot is not running
                     if (botState === 'running' || botState === 'stopping') {
                         botState = 'ended';
-                        finalViewersSpan.textContent = activeViewersSpan.textContent || 0;
+                        if(viewsEndedModal) viewsEndedModal.style.display = 'flex';
                     }
-                    stopPolling(); // Stop polling if bot is not running
+                    stopPolling();
                 }
             } else {
-                 // Handle cases where status returns an error (e.g. 401)
                 if (botState === 'running') {
                     botState = 'ended';
-                    finalViewersSpan.textContent = activeViewersSpan.textContent;
+                    if(viewsEndedModal) viewsEndedModal.style.display = 'flex';
                 }
                 stopPolling();
             }
@@ -198,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startPolling() {
-        if (statusPollInterval) return; // Already polling
+        if (statusPollInterval) return;
         statusPollInterval = setInterval(pollStatus, 2000);
     }
 
@@ -215,8 +217,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         botState = 'starting';
-        startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
-        startBtn.disabled = true;
+        if(startBtn) {
+            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+            startBtn.disabled = true;
+        }
         showCorrectScreen();
 
         const payload = {
@@ -247,8 +251,10 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`Failed to connect to the server: ${error}`);
             botState = 'idle';
         } finally {
-            startBtn.innerHTML = 'Start Viewbot';
-            startBtn.disabled = false;
+            if(startBtn) {
+                startBtn.innerHTML = 'Start Viewbot';
+                startBtn.disabled = false;
+            }
             showCorrectScreen();
         }
     }
@@ -258,8 +264,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!token) return;
 
         botState = 'stopping';
-        stopBotButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
-        stopBotButton.disabled = true;
+        if(stopBotButton) {
+            stopBotButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
+            stopBotButton.disabled = true;
+        }
         showCorrectScreen();
 
         try {
@@ -267,13 +275,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            // The poller will detect the stop and transition the state
         } catch (error) {
             alert(`Error stopping bot: ${error}`);
         } finally {
-            stopBotButton.innerHTML = '<i class="fas fa-stop"></i> Stop Viewbot';
-            stopBotButton.disabled = false;
-            await pollStatus(); // One last poll to get final state
+            if(stopBotButton) {
+                stopBotButton.innerHTML = '<i class="fas fa-stop"></i> Stop Viewbot';
+                stopBotButton.disabled = false;
+            }
+            await pollStatus();
         }
     }
 
@@ -290,13 +299,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (viewersSlider) {
         viewersSlider.addEventListener('input', () => {
-            viewersValue.textContent = viewersSlider.value;
+            if(viewersValue) viewersValue.textContent = viewersSlider.value;
         });
     }
 
     if (durationSlider) {
         durationSlider.addEventListener('input', () => {
-            durationValue.textContent = `${durationSlider.value} min`;
+            if(durationValue) durationValue.textContent = `${durationSlider.value} min`;
         });
     }
 
@@ -324,6 +333,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (viewsEndedDoneBtn) {
         viewsEndedDoneBtn.addEventListener('click', () => {
+            if(viewsEndedModal) viewsEndedModal.style.display = 'none';
             botState = 'idle';
             showCorrectScreen();
         });
