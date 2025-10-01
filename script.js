@@ -210,7 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startPolling() {
         if (statusPollInterval) return;
-        statusPollInterval = setInterval(pollStatus, 2000);
+        statusPollInterval = setInterval(pollStatus, 5000);
     }
 
     function stopPolling() {
