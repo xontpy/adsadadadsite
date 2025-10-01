@@ -321,11 +321,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.is_running) {
             const statusText = data.status_line || 'Running...';
             if(statusLine) statusLine.textContent = statusText;
-            if(activeViewersSpan) activeViewersSpan.textContent = `${data.current_viewers || 0} / ${data.target_viewers || 0}`;
+            
+            const currentViewers = data.current_viewers || 0;
+            const targetViewers = data.target_viewers || 0;
+            if(activeViewersSpan) activeViewersSpan.textContent = `${currentViewers} / ${targetViewers}`;
 
             let progress = 0;
-            if (data.target_viewers > 0) {
-                progress = (data.current_viewers / data.target_viewers) * 100;
+            if (targetViewers > 0) {
+                progress = (currentViewers / targetViewers) * 100;
             }
             
             if(progressBar) progressBar.style.width = `${progress}%`;
