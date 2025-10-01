@@ -145,7 +145,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
     except Exception as e:
         logger(f"Critical error in thread {index}: {e}\n{traceback.format_exc()}")
 
-def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
+def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, viewer_speed):
     """The main function to run the bot, adapted for the website."""
     logger = lambda msg: bot_logger(status_updater, msg)
     
@@ -192,7 +192,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                     )
                     threads.append(t)
                     t.start()
-                    time.sleep(0.05) # Stagger the thread starts slightly
+                    time.sleep(viewer_speed) # Use the viewer_speed for delay
 
             status_update = {
                 "current_viewers": len(connected_viewers),
