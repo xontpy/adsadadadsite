@@ -196,36 +196,25 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             # Clean up dead threads from the list
             threads = [t for t in threads if t.is_alive()]
 
-            # Calculate how many new threads are needed
+            # Calculate how many new threads are needed for the next batch
             num_to_spawn = viewers - len(threads)
 
             if num_to_spawn > 0:
-                logger(f"Found {len(threads)} active threads. Spawning {num_to_spawn} new ones...")
-                
-                # Spawn viewers in calculated batches
-                for i in range(0, num_to_spawn, batch_size):
+                # Determine the size of this specific batch
+                current_batch_size = min(batch_size, num_to_spawn)
+                logger(f"Spawning a batch of {current_batch_size} viewers...")
+
+                for _ in range(current_batch_size):
                     if stop_event.is_set():
                         break
-                    
-                    current_batch_size = min(batch_size, num_to_spawn - i)
-                    logger(f"Spawning a batch of {current_batch_size} viewers...")
-
-                    for _ in range(current_batch_size):
-                        if stop_event.is_set():
-                            break
-                        thread_counter += 1
-                        t = threading.Thread(
-                            target=start_connection_thread,
-                            args=(logger, channel_id, thread_counter, stop_event, connected_viewers, proxies, viewers)
-                        )
-                        threads.append(t)
-                        t.start()
-
-                    # If there are more viewers to spawn, sleep before the next batch
-                    if (i + batch_size) < num_to_spawn and not stop_event.is_set():
-                        if delay_between_batches > 0:
-                            time.sleep(delay_between_batches)
-
+                    thread_counter += 1
+                    t = threading.Thread(
+                        target=start_connection_thread,
+                        args=(logger, channel_id, thread_counter, stop_event, connected_viewers, proxies, viewers)
+                    )
+                    threads.append(t)
+                    t.start()
+            
             status_update = {
                 "current_viewers": len(connected_viewers),
                 "target_viewers": viewers,
@@ -233,8 +222,13 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             }
             logger(status_update)
             
-            # Sleep for a longer interval to reduce CPU usage, as threads are now self-managing.
-            time.sleep(5)
+            # Determine sleep time. Use the calculated delay during ramp-up, otherwise a standard poll interval.
+            if num_to_spawn > batch_size: # Still in the ramp-up phase
+                 sleep_duration = delay_between_batches if delay_between_batches > 0 else 1
+            else: # Ramp-up complete or not applicable
+                sleep_duration = 5 # Standard polling interval
+
+            time.sleep(sleep_duration)
 
     except Exception as e:
         detailed_error = traceback.format_exc()
