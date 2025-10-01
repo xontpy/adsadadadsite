@@ -46,7 +46,7 @@ body {
 }
 
 .modal-content {
-    background-color: var(--main-bg);
+    background-color: #232528; /* Re-set solid background */
     padding: 40px;
     border-radius: 15px;
     text-align: center;
@@ -114,16 +114,18 @@ body {
     width: 1000px;
     height: auto;
     min-height: 650px;
-    background-color: var(--main-bg);
+    background-color: rgba(35, 37, 40, 0.75); /* Semi-transparent */
     border-radius: 20px;
     overflow: hidden;
     box-shadow: 0 10px 50px rgba(0, 0, 0, 0.7);
     border: 1px solid var(--border-color);
+    -webkit-backdrop-filter: blur(15px);
+    backdrop-filter: blur(15px);
 }
 
 .sidebar {
     width: 250px;
-    background-color: var(--sidebar-bg);
+    background-color: rgba(26, 28, 30, 0.7); /* Semi-transparent */
     padding: 20px;
     display: flex;
     flex-direction: column;
@@ -322,19 +324,20 @@ input:checked + .slider:before { transform: translateX(26px); }
 .shape {
     position: absolute;
     border-radius: 50%;
-    background: radial-gradient(circle, var(--primary-green), transparent 60%);
-    opacity: 0.15;
+    background: radial-gradient(circle, var(--primary-green), transparent 70%);
+    opacity: 0.3; /* Increased opacity */
     animation: move 25s infinite alternate;
 }
 
-.shape1 { width: 400px; height: 400px; top: -100px; left: -100px; animation-duration: 30s; }
-.shape2 { width: 500px; height: 500px; bottom: -200px; right: -200px; animation-duration: 35s; }
-.shape3 { width: 300px; height: 300px; bottom: 50%; right: 50%; transform: translate(50%, 50%); animation-duration: 20s; }
-.shape4 { width: 200px; height: 200px; top: 10%; right: 10%; animation-duration: 40s; }
+.shape1 { width: 450px; height: 450px; top: -150px; left: -150px; animation-duration: 30s; }
+.shape2 { width: 550px; height: 550px; bottom: -250px; right: -250px; animation-duration: 35s; }
+.shape3 { width: 350px; height: 350px; bottom: 50%; right: 50%; transform: translate(50%, 50%); animation-duration: 20s; }
+.shape4 { width: 250px; height: 250px; top: 10%; right: 10%; animation-duration: 40s; }
+.shape5 { width: 200px; height: 200px; top: 60%; left: 15%; animation-duration: 28s; }
 
 @keyframes move {
     0% { transform: translate(0, 0) rotate(0deg); }
-    100% { transform: translate(100px, 150px) rotate(180deg); }
+    100% { transform: translate(150px, -100px) rotate(360deg); }
 }
 
 
