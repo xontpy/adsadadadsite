@@ -19,8 +19,9 @@ def bot_logger(status_updater, message):
             # This is a structured status update (with viewers, etc.)
             status_updater.put(message)
         else:
-            # This is a simple string log message
-            status_updater.put({'log_line': str(message)})
+            # This is a simple string log message, but don't log proxy details
+            if "Using proxy" not in str(message):
+                 status_updater.put({'log_line': str(message)})
     except Exception:
         sys.stdout.write(f"\r[UI_LOG_FAIL] {message}")
         sys.stdout.flush()
@@ -61,91 +62,54 @@ async def load_proxies_async(logger):
         logger(f"An error occurred during proxy loading: {e}")
         return CACHED_PROXIES # Return stale cache if available
 
-async def get_channel_id_async(logger, channel_name, proxies_list):
-    """Gets the channel ID using available proxies."""
-    if not proxies_list:
-        logger("Channel ID Error: No proxies available.")
+async def get_channel_id(session, channel_name, logger):
+    try:
+        async with session.get(f"https://kick.com/api/v2/channels/{channel_name}") as response:
+            response.raise_for_status()
+            data = await response.json()
+            if "id" in data:
+                logger(f"Successfully found channel ID for {channel_name}.")
+                return data["id"]
+            else:
+                logger(f"Could not find channel ID in response for {channel_name}.")
+                return None
+    except Exception as e:
+        logger(f"Failed to get channel ID for {channel_name}: {e}")
         return None
 
-    shuffled_proxies = random.sample(proxies_list, len(proxies_list))
+async def send_view(channel_id, proxy, stop_event, logger, connected_viewers_counter, viewer_index):
+    """Handles the lifecycle of a single viewer."""
+    proxy_url = f"http://{proxy}"
     
-    for i, proxy_str in enumerate(shuffled_proxies):
-        try:
-            ip, port, user, pwd = proxy_str.split(":")
-            proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
-        except ValueError:
-            continue
-
-        try:
-            async with AsyncSession(impersonate="firefox110", proxy=proxy_url, timeout=10) as s:
-                r = await s.get(f"https://kick.com/api/v2/channels/{channel_name}")
-                r.raise_for_status()
-                data = r.json()
-                if "id" in data:
-                    logger(f"Successfully found channel ID.")
-                    return data["id"]
-        except Exception:
-            continue
+    try:
+        async with AsyncSession(impersonate="firefox110", proxy=proxy_url, timeout=20) as s:
+            # Step 1: Get viewer token
+            await s.get("https://kick.com")
+            s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
             
-    logger("Fatal: Failed to get channel ID after trying all available proxies.")
-    return None
-
-async def get_token_async(logger, proxies_list):
-    """Gets a viewer token using available proxies."""
-    if not proxies_list:
-        logger("Token Error: No proxies available.")
-        return None, None
-            
-    shuffled_proxies = random.sample(proxies_list, len(proxies_list))
-
-    for i, proxy_str in enumerate(shuffled_proxies):
-        try:
-            ip, port, user, pwd = proxy_str.split(":")
-            proxy_url = f"http://{user}:{pwd}@{ip}:{port}"
-        except ValueError:
-            continue
-        
-        try:
-            async with AsyncSession(impersonate="firefox110", proxy=proxy_url, timeout=10) as s:
-                await s.get("https://kick.com")
-                s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
-                r = await s.get('https://websockets.kick.com/viewer/v1/token')
+            async with s.get('https://websockets.kick.com/viewer/v1/token') as r:
                 r.raise_for_status()
-                return r.json()["data"]["token"], proxy_url
-        except Exception:
-            continue
-    
-    return None, None
+                token_data = await r.json()
+                token = token_data["data"]["token"]
 
-async def connection_handler_async(logger, channel_id, index, stop_event, proxies_list, connected_viewers_counter):
-    """A persistent handler for a single viewer connection."""
-    while not stop_event.is_set():
-        token, proxy_url = await get_token_async(logger, proxies_list)
-        
-        if not token:
-            await asyncio.sleep(random.randint(3, 7))
-            continue
+            # Step 2: Connect to WebSocket
+            ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
+            async with s.ws_connect(ws_url, timeout=15) as ws:
+                connected_viewers_counter.add(viewer_index)
+                logger(f"Viewer {viewer_index} connected.")
 
-        try:
-            async with AsyncSession(impersonate="firefox110", proxy=proxy_url) as session:
-                async with session.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=15) as ws:
-                    connected_viewers_counter.add(index)
-                    
-                    while not stop_event.is_set():
-                        await ws.send_json({"type": "ping"})
-                        await asyncio.sleep(12)
-                        await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
-                        await asyncio.sleep(12)
+                # Step 3: Handshake and Ping loop
+                while not stop_event.is_set():
+                    await ws.send_json({"type": "ping"})
+                    await asyncio.sleep(12)
+                    await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
+                    await asyncio.sleep(12)
 
-        except Exception:
-            pass
-        finally:
-            connected_viewers_counter.discard(index)
-            if not stop_event.is_set():
-                await asyncio.sleep(random.randint(3, 7))
-
-    logger(f"[{index}] Viewer task stopped.")
-    connected_viewers_counter.discard(index)
+    except Exception as e:
+        logger(f"Viewer {viewer_index} failed: {type(e).__name__}")
+    finally:
+        connected_viewers_counter.discard(viewer_index)
+        logger(f"Viewer {viewer_index} disconnected.")
 
 
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
@@ -175,7 +139,10 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
         logger("run_bot_async: No proxies loaded, returning.")
         return
 
-    channel_id = await get_channel_id_async(logger, channel, proxies)
+    # Get channel ID using a random proxy
+    async with AsyncSession(impersonate="firefox110", proxy=f"http://{random.choice(proxies)}") as s:
+        channel_id = await get_channel_id(s, channel, logger)
+
     if not channel_id:
         logger("Failed to get channel ID. Halting.")
         return
@@ -184,47 +151,27 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
     connected_viewers = set()
 
     logger(f"Spawning {viewers} viewer tasks...")
-    viewer_tasks = [
-        asyncio.create_task(connection_handler_async(logger, channel_id, i, stop_event, proxies, connected_viewers))
-        for i in range(viewers)
-    ]
-    logger(f"{len(viewer_tasks)} tasks spawned.")
+    
+    tasks = []
+    for i in range(viewers):
+        if stop_event.is_set():
+            break
+        proxy = random.choice(proxies)
+        task = asyncio.create_task(send_view(channel_id, proxy, stop_event, logger, connected_viewers, i + 1))
+        tasks.append(task)
+        await asyncio.sleep(0.1) # Stagger connections slightly
+
+    logger(f"{len(tasks)} tasks spawned.")
 
     # --- Main monitoring loop ---
-    last_proxy_reload_time = time.time()
     end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
     while time.time() < end_time and not stop_event.is_set():
-        # --- Proxy Health Check & Reload ---
-        # Reload proxies every 10 minutes if they seem to be failing.
-        if time.time() - last_proxy_reload_time > 600:
-            logger("Performing periodic proxy health check...")
-            # A simple health check: if view count is 0, try reloading proxies.
-            if len(connected_viewers) == 0 and viewers > 0:
-                logger("View count is 0, attempting to reload proxies to get a fresh list.")
-                new_proxies = await load_proxies_async(logger)
-                if new_proxies and new_proxies != proxies:
-                    proxies = new_proxies
-                    # To apply the new proxies, we must restart the viewer tasks.
-                    logger("Restarting all viewer tasks to apply new proxies...")
-                    for task in viewer_tasks:
-                        task.cancel()
-                    await asyncio.gather(*viewer_tasks, return_exceptions=True)
-                    
-                    viewer_tasks = [
-                        asyncio.create_task(connection_handler_async(logger, channel_id, i, stop_event, proxies, connected_viewers))
-                        for i in range(viewers)
-                    ]
-                    logger(f"{len(viewer_tasks)} viewer tasks have been restarted.")
-                else:
-                    logger("Proxy reload did not yield a new list. Continuing with current proxies.")
-            last_proxy_reload_time = time.time()
-
         if duration_seconds > 0:
             remaining = end_time - time.time()
             mins, secs = divmod(remaining, 60)
-            status_line = f"Time Left: {int(mins):02d}:{int(secs):02d} | Sending Views: {len(connected_viewers)}/{viewers}"
+            status_line = f"Time Left: {int(mins):02d}:{int(secs):02d}"
         else:
-            status_line = f"Sending Views: {len(connected_viewers)}/{viewers} (Running indefinitely)"
+            status_line = "Running indefinitely"
         
         status_update = {
             "status_line": status_line,
@@ -237,9 +184,9 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
 
     # --- Shutdown sequence ---
     if not stop_event.is_set():
-        logger("Timer finished. Stopping viewers...")
+        logger("Timer finished or stop requested. Stopping viewers...")
         stop_event.set()
     
-    await asyncio.gather(*viewer_tasks, return_exceptions=True)
+    await asyncio.gather(*tasks, return_exceptions=True)
     logger("All viewers have been stopped.")
     logger("run_bot_async finished.")
