@@ -25,7 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const viewersValue = document.getElementById('views-value');
     const durationSlider = document.getElementById('duration-input');
     const durationValue = document.getElementById('duration-value');
-    const rampupInput = document.getElementById('rampup-input');
+    const viewerSpeedInput = document.getElementById('viewer-speed-input');
+    const viewerSpeedValue = document.getElementById('viewer-speed-value');
 
     // Status screen elements
     const activeViewersSpan = document.getElementById('active-viewers');
@@ -152,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const channel = channelInput.value;
         const views = parseInt(viewersSlider.value, 10);
         const duration = parseInt(durationSlider.value, 10);
-        const rampup = parseInt(rampupInput.value, 10) || 0;
+        const viewerSpeed = parseFloat(viewerSpeedInput.value);
 
         if (!channel) {
             alert('Please enter a channel name.');
@@ -174,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
             channel: channel,
             views: views,
             duration: duration,
-            ramp_up_seconds: rampup
+            viewer_speed: viewerSpeed
         };
 
         try {
@@ -366,6 +367,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (durationSlider && durationValue) {
         durationSlider.addEventListener('input', () => {
             durationValue.textContent = `${durationSlider.value} min`;
+        });
+    }
+
+    if (viewerSpeedInput && viewerSpeedValue) {
+        viewerSpeedInput.addEventListener('input', () => {
+            viewerSpeedValue.textContent = `${parseFloat(viewerSpeedInput.value).toFixed(2)}s`;
         });
     }
     
