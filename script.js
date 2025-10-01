@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const viewbotPage = document.querySelector('.viewbot-controls');
     const viewbotStatusPage = document.querySelector('.viewbot-status');
     const settingsPage = document.getElementById('settings-page');
+    const logsPage = document.getElementById('logs-page');
 
     const startBtn = document.getElementById('start-btn');
     const stopBotButton = document.getElementById('stop-bot-button');
@@ -32,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusLine = document.getElementById('status-line');
     const progressBar = document.getElementById('progress-bar');
     const progressPercent = document.getElementById('progress-percent');
+    const logsContent = document.getElementById('logs-content');
 
     // --- State Variables ---
     let isBotRunning = false;
@@ -50,13 +52,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showPage(pageId) {
-        const pages = [viewbotPage, viewbotStatusPage, settingsPage];
+        const pages = [viewbotPage, viewbotStatusPage, settingsPage, logsPage];
         let pageToShow = null;
 
         if (pageId === 'viewbot') {
             pageToShow = isBotRunning ? viewbotStatusPage : viewbotPage;
         } else if (pageId === 'settings') {
             pageToShow = settingsPage;
+        } else if (pageId === 'logs') {
+            pageToShow = logsPage;
         }
         // Add other pages here if needed
 
@@ -257,7 +261,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     const status = await response.json();
                     isBotRunning = status.is_running;
-                    updateStatusDisplay(status); // Ensure status object is passed
+                    updateStatusDisplay(status);
+                    
+                    if (status.logs && Array.isArray(status.logs)) {
+                        updateLogsDisplay(status.logs);
+                    }
                 }
 
                 if (isBotRunning !== wasRunning) {
@@ -327,6 +335,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if(statusLine) statusLine.textContent = data.status_line || 'Not running.';
             if(progressBar) progressBar.style.width = '0%';
             if(progressPercent) progressPercent.textContent = '0%';
+        }
+    }
+
+    function updateLogsDisplay(logs) {
+        if (logsContent) {
+            // Backend sends logs with newest first.
+            logsContent.innerHTML = logs.join('\n');
         }
     }
 
