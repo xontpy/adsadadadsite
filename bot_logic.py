@@ -16,10 +16,11 @@ def bot_logger(status_updater, message):
     """A simple logger that sends messages to the web UI."""
     try:
         if isinstance(message, dict):
+            # This is a structured status update (with viewers, etc.)
             status_updater.put(message)
         else:
-            # Fallback for simple string messages
-            status_updater.put({'status_line': message})
+            # This is a simple string log message
+            status_updater.put({'log_line': str(message)})
     except Exception:
         sys.stdout.write(f"\r[UI_LOG_FAIL] {message}")
         sys.stdout.flush()
