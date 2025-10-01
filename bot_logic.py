@@ -72,8 +72,8 @@ def get_channel_id(logger, channel_name, proxies_list):
         if not proxy_dict:
             continue
         try:
-            # Using chrome120 impersonation for better compatibility
-            with requests.Session(impersonate="chrome120", proxies=proxy_dict, timeout=10) as s:
+            # Using firefox135 impersonation for better compatibility
+            with requests.Session(impersonate="firefox135", proxies=proxy_dict, timeout=10) as s:
                 r = s.get(f"https://kick.com/api/v2/channels/{channel_name}")
                 if r.status_code == 200:
                     logger(f"Successfully found channel ID for {channel_name}.")
@@ -94,7 +94,7 @@ def get_token(logger, proxies_list):
         if not proxy_dict:
             continue
         try:
-            with requests.Session(impersonate="chrome120", proxies=proxy_dict, timeout=15) as s:
+            with requests.Session(impersonate="firefox135", proxies=proxy_dict, timeout=15) as s:
                 s.get("https://kick.com")
                 s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 r = s.get('https://websockets.kick.com/viewer/v1/token')
@@ -124,9 +124,9 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
 
             try:
                 # Using AsyncSession for the WebSocket connection as in the original script
-                async with AsyncSession(proxy=proxy_url, timeout=30) as s:
+                async with AsyncSession(timeout=30) as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
-                    ws = await s.ws_connect(ws_url, timeout=20)
+                    ws = await s.ws_connect(ws_url, proxy=proxy_url, timeout=20)
                     
                     # --- Viewer Connected ---
                     connected_viewers.add(index)
@@ -137,8 +137,8 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                         counter += 1
                         payload = {"type": "ping"} if counter % 2 == 0 else {"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}}
                         await ws.send_json(payload)
-                        # Reduced delay to prevent disconnections
-                        await asyncio.sleep(5 + random.randint(1, 3))
+                        # Delay between pings/handshakes
+                        await asyncio.sleep(11 + random.randint(2, 7))
 
             except Exception as e:
                 pass  # Silent retry on error
