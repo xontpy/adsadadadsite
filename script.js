@@ -1,7 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- Constants and Variables ---
-    // const API_BASE_URL = 'https://kickaviewss.onrender.com/callback'; // Removed duplicate declaration
-
     // --- Element References ---
     const loginButton = document.getElementById('login-button');
     const logoutButton = document.getElementById('logout-button');
@@ -9,31 +6,43 @@ document.addEventListener('DOMContentLoaded', () => {
     const userAvatar = document.getElementById('user-avatar');
     const usernameSpan = document.getElementById('username');
     const permissionsSpan = document.getElementById('permissions');
-    const controlPanel = document.getElementById('control-panel');
+    const premiumPlanBanner = document.querySelector('.premium-plan');
 
-    const viewbotTab = document.querySelector('[data-tab="viewbot-content"]');
-    const proxiesTab = document.querySelector('[data-tab="proxies-content"]');
-    const viewbotContent = document.getElementById('viewbot-content');
-    const proxiesContent = document.getElementById('proxies-content');
-
+    const mainContent = document.querySelector('.main-content');
+    const viewbotPage = document.querySelector('.viewbot-controls');
+    const viewbotStatusPage = document.querySelector('.viewbot-status');
+    const settingsPage = document.getElementById('settings-page');
+    
     const startBotButton = document.getElementById('start-bot-button');
     const stopBotButton = document.getElementById('stop-bot-button');
     const channelInput = document.getElementById('channel-input');
     const viewersSlider = document.getElementById('viewers-slider');
-    const viewersCount = document.getElementById('viewers-count'); // Corrected reference
+    const viewersCount = document.getElementById('viewers-count');
     const durationSlider = document.getElementById('duration-slider');
-    const durationCount = document.getElementById('duration-count'); // Corrected reference
-    const saveProxiesButton = document.getElementById('save-proxies-button');
-    const proxiesTextarea = document.getElementById('proxies-textarea');
-    const statusBox = document.getElementById('status-box');
-    const botStatusContainer = document.getElementById('bot-status-container');
-    const botStatusLine = document.getElementById('bot-status-line');
+    const durationCount = document.getElementById('duration-count');
+    const rampUpTimeInput = document.getElementById('ramp-up-time');
 
-    let statusInterval; // To hold the interval ID for polling
+    // Status screen elements
+    const activeViewersSpan = document.getElementById('active-viewers');
+    const timeElapsedSpan = document.getElementById('time-elapsed');
+    const progressBar = document.getElementById('progress-bar');
+    const progressPercentSpan = document.getElementById('progress-percent');
+
+    // Settings elements
+    const themeSelect = document.getElementById('theme-select');
+    const notificationsToggle = document.getElementById('notifications-toggle');
+    
+    // Menu items
+    const menuItems = document.querySelectorAll('.menu-item');
+
+    // --- Configuration ---
+    const API_BASE_URL = 'https://kickaviewss.onrender.com'; // Replace with your actual API endpoint
+
+    // --- State ---
     let isBotRunning = false;
-    let botCrashed = false;
+    let statusInterval;
 
-    // --- Event Listeners for Sliders ---
+    // --- Event Listeners ---
     if (viewersSlider && viewersCount) {
         viewersSlider.addEventListener('input', () => {
             viewersCount.textContent = viewersSlider.value;
@@ -46,13 +55,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-
-    // --- Configuration ---
-    // This is the critical line to fix.
-    const API_BASE_URL = 'https://kickaviewss.onrender.com';
-    // --- Authentication ---
-    
-    // Function to get the token from the URL hash
     if (loginButton) {
         loginButton.addEventListener('click', () => {
             window.location.href = `${API_BASE_URL}/login`;
@@ -63,16 +65,67 @@ document.addEventListener('DOMContentLoaded', () => {
         logoutButton.addEventListener('click', () => {
             localStorage.removeItem('accessToken');
             showLoginState();
-            showStatus('Logged out successfully.', 'success');
         });
     }
+
+    if (startBotButton) {
+        startBotButton.addEventListener('click', startBot);
+    }
+    
+    if (stopBotButton) {
+        stopBotButton.addEventListener('click', stopBot);
+    }
+
+    menuItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const page = item.getAttribute('data-page');
+            showPage(page);
+        });
+    });
+
+    if (themeSelect) {
+        themeSelect.addEventListener('change', (e) => {
+            document.body.className = `${e.target.value}-theme`;
+        });
+    }
+
+    // --- Functions ---
+    function showPage(page) {
+        const pages = [viewbotPage, viewbotStatusPage, settingsPage];
+        let pageToShow = null;
+
+        if (page === 'viewbot') {
+            pageToShow = isBotRunning ? viewbotStatusPage : viewbotPage;
+        } else if (page === 'settings') {
+            pageToShow = settingsPage;
+        }
+        // Add other pages here (e.g., support)
+
+        pages.forEach(p => {
+            if (p !== pageToShow) {
+                p.style.display = 'none';
+                p.classList.remove('page');
+            }
+        });
+
+        if (pageToShow) {
+            pageToShow.style.display = 'block';
+            pageToShow.classList.add('page');
+        }
+
+        // Update active menu item
+        menuItems.forEach(item => {
+            item.classList.toggle('active', item.getAttribute('data-page') === page);
+        });
+    }
+
 
     async function checkUserSession() {
         const hash = window.location.hash;
         if (hash.startsWith('#token=')) {
             const token = hash.substring('#token='.length);
             localStorage.setItem('accessToken', token);
-            // Use replaceState to clean the URL without reloading
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
             await fetchUserData(token);
         } else {
@@ -83,44 +136,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 showLoginState();
             }
         }
-        pollStatus(); // Start polling for status immediately on page load
+        pollStatus();
     }
 
-
-async function fetchUserData(token) {
-        console.log("Attempting to fetch user data with token:", token); // DEBUG
+    async function fetchUserData(token) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/me`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-    
-            console.log("Response from /api/me:", response.status, response.statusText); // DEBUG
 
             if (response.ok) {
                 const user = await response.json();
-                console.log("Received user data:", user); // DEBUG
                 showLoggedInState(user);
             } else {
-                console.error("Failed to fetch user data. Status:", response.status); // DEBUG
                 localStorage.removeItem('accessToken');
                 showLoginState();
-                if (response.status === 401) {
-                    showStatus('Session expired. Please log in again.', 'error');
-                }
             }
         } catch (error) {
             console.error('Error fetching user data:', error);
             showLoginState();
-            showStatus('Failed to connect to server.', 'error');
         }
     }
+
     function showLoginState() {
         if (loginButton) loginButton.style.display = 'block';
         if (userProfile) userProfile.style.display = 'none';
-        if (proxiesTab) proxiesTab.style.display = 'none';
-        if (proxiesContent) proxiesContent.style.display = 'none';
-        if (viewbotTab) viewbotTab.classList.add('active');
-        if (viewbotContent) viewbotContent.style.display = 'block';
+        if (premiumPlanBanner) premiumPlanBanner.style.display = 'none';
     }
 
     function showLoggedInState(user) {
@@ -128,56 +169,20 @@ async function fetchUserData(token) {
         if (userProfile) userProfile.style.display = 'flex';
         
         if (usernameSpan) usernameSpan.textContent = user.username;
-        if (permissionsSpan) permissionsSpan.textContent = `(Level: ${user.level})`;
+        if (permissionsSpan) {
+            permissionsSpan.textContent = user.is_premium ? 'Pro' : 'Standard';
+        }
+        if (user.is_premium && premiumPlanBanner) {
+            premiumPlanBanner.style.display = 'flex';
+        }
         if (userAvatar) userAvatar.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`;
 
         if (viewersSlider) {
-            viewersSlider.max = user.max_views;
-            if (parseInt(viewersSlider.value) > user.max_views) {
-                viewersSlider.value = user.max_views;
+            viewersSlider.max = user.max_views || 500;
+            if (parseInt(viewersSlider.value) > viewersSlider.max) {
+                viewersSlider.value = viewersSlider.max;
             }
             if(viewersCount) viewersCount.textContent = viewersSlider.value;
-        }
-        // Also update the duration slider if needed, though no max is provided from user data
-
-        // Show the proxies tab only for owners
-        if (user.is_owner) {
-            if (proxiesTab) proxiesTab.style.display = 'block';
-            loadProxies();
-        } else {
-            if (proxiesTab) proxiesTab.style.display = 'none';
-        }
-    }
-
-    // --- Bot Actions ---
-    controlPanel.addEventListener('click', (event) => {
-        const startButton = document.getElementById('start-bot-button');
-        if (event.target === startButton || startButton.contains(event.target)) {
-            if (isBotRunning) {
-                stopBot();
-            } else {
-                startBot();
-            }
-        }
-    });
-
-    function updateStartButton(text, state) {
-        const startButton = document.getElementById('start-bot-button');
-        const buttonText = startButton.querySelector('span');
-        const icon = startButton.querySelector('img');
-
-        if (text) {
-            buttonText.textContent = text;
-        }
-
-        if (state === 'running') {
-            icon.src = 'assets/icons/stop-view-icon.svg';
-            startButton.classList.remove('btn-success');
-            startButton.classList.add('btn-danger');
-        } else if (state === 'stopped') {
-            icon.src = 'assets/icons/start-view-icon.svg';
-            startButton.classList.remove('btn-danger');
-            startButton.classList.add('btn-success');
         }
     }
 
@@ -185,35 +190,27 @@ async function fetchUserData(token) {
         const channel = channelInput.value;
         const viewers = viewersSlider.value;
         const duration = durationSlider.value;
+        const rampUpTime = rampUpTimeInput.value;
 
         if (!channel) {
-            showStatus('Please enter a Kick channel name.', 'error');
+            alert('Please enter a Kick channel name.');
             return;
         }
 
         const token = localStorage.getItem('accessToken');
         if (!token) {
-            showStatus('You are not logged in. Please log in to start the bot.', 'error');
+            alert('You are not logged in. Please log in to start the bot.');
             return;
         }
 
-        const num_viewers = parseInt(viewers);
-        const duration_minutes = parseInt(duration);
-
-        if (isNaN(duration_minutes) || duration_minutes <= 0) {
-            showStatus(`Invalid duration value detected: ${duration}. Please ensure you select a positive number of minutes.`, 'error');
-            return;
-        }
-        
-        const startButton = document.getElementById('start-bot-button');
-        startButton.querySelector('span').textContent = 'Starting...';
-        startButton.disabled = true;
-
+        startBotButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+        startBotButton.disabled = true;
 
         const payload = {
             channel: channel,
-            views: num_viewers,
-            duration: duration_minutes
+            views: parseInt(viewers),
+            duration: parseInt(duration),
+            ramp_up_minutes: rampUpTime ? parseInt(rampUpTime) : 0
         };
 
         try {
@@ -229,57 +226,51 @@ async function fetchUserData(token) {
             const data = await response.json();
 
             if (response.ok) {
-                showStatus(data.message || 'Bot started successfully!', 'success');
                 isBotRunning = true;
-                botCrashed = false;
-                pollStatus(); // Start polling immediately
+                showPage('viewbot');
+                pollStatus();
             } else {
                 throw new Error(data.detail || 'Failed to start bot.');
             }
         } catch (error) {
-            showStatus(`Error starting bot: ${error.message}`, 'error');
+            alert(`Error starting bot: ${error.message}`);
             isBotRunning = false;
-            updateStartButton('Start Views', 'stopped');
+            showPage('viewbot');
         } finally {
-            startButton.disabled = false;
+            startBotButton.innerHTML = '<i class="fas fa-play"></i> Start Viewbot';
+            startBotButton.disabled = false;
         }
     }
 
     async function stopBot() {
-        const startButton = document.getElementById('start-bot-button');
-        startButton.querySelector('span').textContent = 'Stopping...';
-        startButton.disabled = true;
+        stopBotButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
+        stopBotButton.disabled = true;
 
         const token = localStorage.getItem('accessToken');
         try {
             const response = await fetch(`${API_BASE_URL}/api/stop`, {
                 method: 'POST',
-                 headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
             if (response.ok) {
-                showStatus(data.message || 'Bot stopped successfully.', 'success');
                 isBotRunning = false;
-                botCrashed = false;
-                botStatusContainer.style.display = 'none';
-                botStatusLine.textContent = '';
+                showPage('viewbot');
+                if (statusInterval) clearInterval(statusInterval);
             } else {
                 throw new Error(data.detail || 'Failed to stop bot.');
             }
         } catch (error) {
-            showStatus(`Error stopping bot: ${error.message}`, 'error');
+            alert(`Error stopping bot: ${error.message}`);
         } finally {
-            startButton.disabled = false;
-            updateStartButton('Start Views', 'stopped');
+            stopBotButton.innerHTML = '<i class="fas fa-stop"></i> Stop Viewbot';
+            stopBotButton.disabled = false;
         }
     }
 
     function pollStatus() {
-        if (statusInterval) {
-            clearInterval(statusInterval);
-        }
+        if (statusInterval) clearInterval(statusInterval);
+        
         statusInterval = setInterval(async () => {
             const token = localStorage.getItem('accessToken');
             if (!token) {
@@ -288,162 +279,52 @@ async function fetchUserData(token) {
             }
             try {
                 const response = await fetch(`${API_BASE_URL}/api/status`, {
-                     headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
+                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (!response.ok) {
                     if (response.status === 401) {
-                        showStatus('Session expired. Please log in again.', 'error');
                         localStorage.removeItem('accessToken');
                         showLoginState();
                         clearInterval(statusInterval);
                     }
-                    throw new Error('Failed to fetch status.');
+                    isBotRunning = false;
+                    showPage('viewbot');
+                    return;
                 }
                 
                 const status = await response.json();
-
-                if (isBotRunning && !status.is_running) {
-                    botCrashed = true;
-                }
                 isBotRunning = status.is_running;
 
-                const startButton = document.getElementById('start-bot-button');
-                if (!startButton.disabled) {
-                    if (isBotRunning) {
-                        updateStartButton('Stop Views', 'running');
-                    } else {
-                        updateStartButton('Start Views', 'stopped');
-                    }
-                }
-
-                if (isBotRunning && status.status_line) {
-                    botStatusContainer.style.display = 'block';
-                    botStatusLine.style.color = ''; // reset color
-                    botStatusLine.innerHTML = status.status_line;
-                } else if (botCrashed) {
-                    botStatusContainer.style.display = 'block';
-                    botStatusLine.style.color = '#dc3545'; // a red color for error
-                    botStatusLine.innerHTML = 'Bot stopped unexpectedly. Please restart.';
+                if (isBotRunning) {
+                    showPage('viewbot');
+                    updateStatusDisplay(status);
                 } else {
-                    botStatusContainer.style.display = 'none';
+                    showPage('viewbot');
+                    clearInterval(statusInterval);
                 }
 
             } catch (error) {
                 console.error('Polling error:', error.message);
-                showStatus('Connection to server lost. Retrying...', 'error');
+                isBotRunning = false;
+                showPage('viewbot');
+                clearInterval(statusInterval);
             }
-        }, 2000);
+        }, 2000); // Poll every 2 seconds
     }
 
-    // --- Proxies Actions ---
-    if (saveProxiesButton) {
-        saveProxiesButton.addEventListener('click', async () => {
-            const proxies = proxiesTextarea.value;
-            showStatus('Saving proxies...', 'info');
+    function updateStatusDisplay(status) {
+        const targetViewers = status.target_viewers || 0;
+        const currentViewers = status.current_viewers || 0;
+        const timeElapsed = status.time_elapsed_str || '00:00';
+        const progress = status.progress_percent || 0;
 
-            const token = localStorage.getItem('accessToken');
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/save-proxies`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({ proxies: proxies }),
-                });
-                const result = await response.json();
-                if (response.ok) {
-                    showStatus(result.message, 'success');
-                } else {
-                    showStatus(`Error: ${result.detail || result.error}`, 'error');
-                }
-            } catch (error) {
-                showStatus(`Network Error: ${error.message}`, 'error');
-            }
-        });
-    }
-    
-    function showStatus(message, type = 'info', isToast = false) {
-        if (statusBox) {
-            statusBox.textContent = message;
-            statusBox.className = `status-box ${type}`;
-
-            if (isToast) {
-                statusBox.classList.add('is-toast', 'show');
-                setTimeout(() => {
-                    statusBox.classList.remove('show');
-                    // Remove the is-toast class after the animation is done
-                    setTimeout(() => statusBox.classList.remove('is-toast'), 500);
-                }, 3000);
-            }
-        }
+        if (activeViewersSpan) activeViewersSpan.textContent = `${currentViewers} / ${targetViewers}`;
+        if (timeElapsedSpan) timeElapsedSpan.textContent = timeElapsed;
+        if (progressBar) progressBar.style.width = `${progress}%`;
+        if (progressPercentSpan) progressPercentSpan.textContent = `${Math.round(progress)}%`;
     }
 
     // --- Initial Load ---
     checkUserSession();
-
-    // --- Tab Switching ---
-    const tabs = document.querySelectorAll('.tab-button');
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            // Remove active class from all tabs and content
-            tabs.forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
-
-            // Add active class to the clicked tab and show its content
-            tab.classList.add('active');
-            const tabContentId = tab.getAttribute('data-tab');
-            document.getElementById(tabContentId).style.display = 'block';
-        });
-    });
+    showPage('viewbot'); // Show viewbot page by default
 });
-
-
-// Function to show status toast
-function showStatus(message, type = 'info') {
-    const statusBox = document.getElementById('status-box');
-    statusBox.textContent = message;
-    statusBox.className = 'status-box show ' + type;
-    setTimeout(() => {
-        statusBox.className = statusBox.className.replace(' show', '');
-    }, 3000);
-}
-
-// Function to fetch and display proxies
-async function loadProxies() {
-    const token = localStorage.getItem('discord_token');
-    if (!token) return;
-
-    try {
-        const response = await fetch('/api/get-proxies', {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            document.getElementById('proxies-textarea').value = data.proxies;
-        } else {
-            console.error('Failed to load proxies:', await response.text());
-        }
-    } catch (error) {
-        console.error('Error loading proxies:', error);
-    }
-}
-
-// Function to check authentication status
-async function checkAuth() {
-    const token = localStorage.getItem('discord_token');
-    if (!token) {
-        document.getElementById('main-content').style.display = 'block';
-        document.getElementById('login-button').style.display = 'none';
-        pollStatus(); // Start polling for bot status
-        loadProxies(); // Load proxies on page load
-    } else {
-        // Not authenticated
-        document.getElementById('login-button').style.display = 'block';
-    }
-}
