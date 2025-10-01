@@ -115,20 +115,20 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
             try:
                 async with AsyncSession(proxy=proxy_url, timeout=20) as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
-                    async with s.ws_connect(ws_url, timeout=15) as ws:
-                        connected_viewers.add(index)
-                        logger(f"Viewer {index} connected.")
+                    ws = await s.ws_connect(ws_url, timeout=15)
+                    connected_viewers.add(index)
+                    logger(f"Viewer {index} connected.")
+                    
+                    counter = 0
+                    while not stop_event.is_set():
+                        counter += 1
+                        if counter % 2 == 0:
+                            await ws.send_json({"type": "ping"})
+                        else:
+                            await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
                         
-                        counter = 0
-                        while not stop_event.is_set():
-                            counter += 1
-                            if counter % 2 == 0:
-                                await ws.send_json({"type": "ping"})
-                            else:
-                                await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
-                            
-                            delay = 11 + random.randint(2, 7)
-                            await asyncio.sleep(delay)
+                        delay = 11 + random.randint(2, 7)
+                        await asyncio.sleep(delay)
 
             except Exception as e:
                 logger(f"Viewer {index} error: {e}. Retrying...")
