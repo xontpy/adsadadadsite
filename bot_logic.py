@@ -100,25 +100,29 @@ def get_token(logger, proxies_list):
         time.sleep(1)
     return None, None
 
-def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers, proxies_list, total_viewers):
-    """The main logic for a single viewer thread."""
+def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers, proxies_list, total_viewers, semaphore):
+    """The main logic for a single viewer thread, with semaphore control."""
     
     async def connection_handler():
         while not stop_event.is_set():
-            token, proxy_url = get_token(logger, proxies_list)
-            if not token:
-                logger(f"Viewer {index}: Failed to get token, retrying...")
-                await asyncio.sleep(5)
-                continue
-
+            was_connected = False
+            semaphore.acquire()
             try:
+                logger(f"Viewer {index}: Slot acquired. Connecting...")
+                token, proxy_url = get_token(logger, proxies_list)
+                if not token:
+                    raise ConnectionError("Failed to get token")
+
                 async with AsyncSession(proxy=proxy_url, timeout=20) as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
                     ws = await s.ws_connect(ws_url, timeout=15)
                     
+                    semaphore.release()
+                    was_connected = True
+
                     connected_viewers.add(index)
                     logger(f"Viewer {index} connected.")
-                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers, "is_running": True})
+                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
                     
                     counter = 0
                     while not stop_event.is_set():
@@ -129,14 +133,16 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
 
             except Exception as e:
                 logger(f"Viewer {index} error: {e}. Retrying...")
+                if not was_connected:
+                    semaphore.release()
             finally:
                 connected_viewers.discard(index)
-                if not stop_event.is_set():
-                    logger(f"Viewer {index} disconnected.")
-                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers, "is_running": not stop_event.is_set()})
+                if was_connected and not stop_event.is_set():
+                     logger(f"Viewer {index} disconnected.")
+                logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
 
             if not stop_event.is_set():
-                await asyncio.sleep(random.randint(5, 10))
+                await asyncio.sleep(random.randint(4, 8))
 
     try:
         asyncio.run(connection_handler())
@@ -144,7 +150,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
         logger(f"Critical error in thread {index}: {e}\\n{traceback.format_exc()}")
 
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
-    """The main function to run the bot, adapted from main(2).py."""
+    """The main function to run the bot, with thread management and semaphore."""
     logger = lambda msg: bot_logger(status_updater, msg)
     
     try:
@@ -161,38 +167,62 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             return
 
         start_time = time.time()
-        duration_seconds = duration_minutes * 60 if duration_minutes > 0 else float('inf')
-        
         connected_viewers = set()
         threads = []
+        
+        MAX_CONCURRENT_CONNECTIONS = 50 
+        connection_semaphore = threading.Semaphore(MAX_CONCURRENT_CONNECTIONS)
+        logger(f"Bot configured for {viewers} viewers with a max of {MAX_CONCURRENT_CONNECTIONS} concurrent connections.")
 
-        for i in range(viewers):
-            if stop_event.is_set():
-                break
-            t = threading.Thread(
-                target=start_connection_thread,
-                args=(logger, channel_id, i + 1, stop_event, connected_viewers, proxies, viewers)
-            )
-            threads.append(t)
-            t.start()
-            time.sleep(0.05) # Stagger thread starts slightly
+        duration_seconds = duration_minutes * 60 if duration_minutes > 0 else float('inf')
+        end_time = start_time + duration_seconds
 
-        # Monitor loop
-        while time.time() - start_time < duration_seconds and not stop_event.is_set():
-            # The threads themselves now handle status updates
-            time.sleep(5)
+        while time.time() < end_time and not stop_event.is_set():
+            threads = [t for t in threads if t.is_alive()]
+            needed = viewers - len(threads)
+            
+            if needed > 0:
+                logger(f"System state: {len(threads)} threads active, need {viewers}. Starting {needed} new threads.")
+            
+            for i in range(needed):
+                if stop_event.is_set():
+                    break
+                
+                thread_index = len(threads) + i + 1
+                
+                t = threading.Thread(
+                    target=start_connection_thread,
+                    args=(logger, channel_id, thread_index, stop_event, connected_viewers, proxies, viewers, connection_semaphore)
+                )
+                threads.append(t)
+                t.start()
+
+            status_update = {
+                "current_viewers": len(connected_viewers),
+                "target_viewers": viewers,
+                "is_running": True
+            }
+            logger(status_update)
+            
+            time.sleep(10)
 
     except Exception as e:
         detailed_error = traceback.format_exc()
         logger(f"An unexpected error occurred in the bot's core loop: {e}\\nDetails:\\n{detailed_error}")
     finally:
-        shutdown_reason = "stop request received" if stop_event.is_set() else "timer finished"
-        logger(f"Shutting down ({shutdown_reason}). Stopping all viewers...")
+        shutdown_reason = "an unknown error"
+        if stop_event.is_set():
+            shutdown_reason = "stop request received"
+        elif duration_seconds > 0 and time.time() >= end_time:
+            shutdown_reason = "timer finished"
+
+        logger(f"Shutting down ({shutdown_reason}). Stopping viewers...")
         
         if not stop_event.is_set():
             stop_event.set()
         
         for t in threads:
-            t.join(timeout=3)
+            t.join(timeout=5)
             
         logger("Bot process has stopped.")
+        logger({"is_running": False, "current_viewers": 0})
