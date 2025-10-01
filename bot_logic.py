@@ -180,6 +180,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         connected_viewers = set()
         threads = []
 
+        logger(f"Sending {viewers} views to {channel}")
         # Start all viewer threads with stagger to avoid overwhelming the system
         for i in range(viewers):
             if stop_event.is_set():
