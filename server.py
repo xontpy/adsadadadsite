@@ -1,4 +1,3 @@
-# Cache-busting comment to ensure Render picks up the change
 import os
 import asyncio
 import multiprocessing
@@ -20,6 +19,7 @@ class StartBotPayload(BaseModel):
     channel: str
     views: int
     duration: int
+    ramp_up_minutes: int = 0
 
 class ProxiesSaveRequest(BaseModel):
     proxies: str
@@ -56,13 +56,11 @@ ROLE_PERMISSIONS = {
 
 # --- Bot State Management ---
 manager = multiprocessing.Manager()
-# A dictionary to hold the bot state for each user, keyed by user_id
-# Each value will be a dictionary: {'pid': process.pid, 'status': bot_status}
 user_bot_sessions = {}
 
 # --- User Data Cache ---
 user_cache = {}
-CACHE_DURATION = 300  # Cache user data for 5 minutes
+CACHE_DURATION = 300
 
 # --- Authentication Dependency ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -71,7 +69,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if not token:
         return None
 
-    # Check cache first
     if token in user_cache and time.time() - user_cache[token].get('timestamp', 0) < CACHE_DURATION:
         return user_cache[token]['data']
 
@@ -83,18 +80,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
     guild_member_r = requests.get(f'https://discord.com/api/users/@me/guilds/{DISCORD_GUILD_ID}/member', headers=user_headers)
     
-    if guild_member_r.status_code == 200:
-        guild_roles = guild_member_r.json().get('roles', [])
-    else:
-        guild_roles = []
-        # Log the error but don't crash the request. Proceed with default permissions.
-        print(f"Could not fetch member details from guild for user {user_json.get('id')}. Status: {guild_member_r.status_code}, Response: {guild_member_r.text}")
+    guild_roles = guild_member_r.json().get('roles', []) if guild_member_r.status_code == 200 else []
 
     user_json['roles'] = guild_roles
     
     default_permission = ROLE_PERMISSIONS.get("default")
     user_level = default_permission["level"]
     max_views = default_permission["max_views"]
+    is_premium = False
 
     is_owner = OWNER_ROLE_ID in guild_roles if OWNER_ROLE_ID else False
 
@@ -102,20 +95,19 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         permission = ROLE_PERMISSIONS.get(OWNER_ROLE_ID, {})
         user_level = permission.get("level", user_level)
         max_views = permission.get("max_views", max_views)
+        is_premium = True
     elif PRO_ROLE_ID and PRO_ROLE_ID in guild_roles:
         permission = ROLE_PERMISSIONS.get(PRO_ROLE_ID, {})
         user_level = permission.get("level", user_level)
         max_views = permission.get("max_views", max_views)
+        is_premium = True
         
     user_json['level'] = user_level
     user_json['max_views'] = max_views
     user_json['is_owner'] = is_owner
+    user_json['is_premium'] = is_premium
     
-    # Cache the processed data
-    user_cache[token] = {
-        'timestamp': time.time(),
-        'data': user_json
-    }
+    user_cache[token] = {'timestamp': time.time(), 'data': user_json}
     
     return user_json
 
@@ -139,40 +131,8 @@ async def callback(code: str):
         token_r.raise_for_status()
         discord_access_token = token_r.json()['access_token']
         return RedirectResponse(url=f"/#token={discord_access_token}")
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 429:
-            # Rate limited by Discord
-            print("Discord token exchange failed: 429 Too Many Requests.")
-            return HTMLResponse(
-                status_code=429,
-                content="""
-                <html>
-                    <head>
-                        <title>Too Many Requests</title>
-                        <style>
-                            body { font-family: sans-serif; text-align: center; padding: 40px; background-color: #121212; color: #E0E0E0; }
-                            h1 { color: #FF6B6B; }
-                            p { font-size: 1.2em; }
-                            a { color: #76D7C4; }
-                        </style>
-                    </head>
-                    <body>
-                        <h1>Whoa, slow down!</h1>
-                        <p>We're getting a "Too Many Requests" error from Discord. This usually means too many people are trying to log in at once.</p>
-                        <p>Please wait a few moments and then <a href="/login">try again</a>.</p>
-                    </body>
-                </html>
-                """
-            )
-        print(f"Error during Discord token exchange: {e}")
-        raise HTTPException(status_code=500, detail="Failed to authenticate with Discord.")
     except requests.exceptions.RequestException as e:
-        print(f"A network error occurred during Discord token exchange: {e}")
-        raise HTTPException(status_code=500, detail="Failed to communicate with Discord. Please check your network and try again.")
-
-@app.get("/logout")
-async def logout():
-    return RedirectResponse(url="/")
+        raise HTTPException(status_code=500, detail=f"Failed to communicate with Discord: {e}")
 
 @app.get("/api/me")
 async def get_me(user: dict = Depends(get_current_user)):
@@ -181,63 +141,44 @@ async def get_me(user: dict = Depends(get_current_user)):
     return {
         'id': user['id'], 'username': user['username'], 'avatar': user['avatar'],
         'max_views': user['max_views'], 'level': user['level'], 'is_owner': user['is_owner'],
+        'is_premium': user.get('is_premium', False)
     }
 
 @app.post("/api/start")
 async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_user)):
-    print("--- /api/start endpoint hit ---") # DEBUG
     if not user:
-        print("Authentication failed: No user object.") # DEBUG
         raise HTTPException(status_code=401, detail="Authentication required.")
 
     user_id = user['id']
-    print(f"Request from user_id: {user_id}") # DEBUG
 
-    if user_id in user_bot_sessions:
-        session = user_bot_sessions[user_id]
-        pid = session.get('pid')
-        pid_exists = psutil.pid_exists(pid) if pid else False
-        print(f"Found existing session for user {user_id}. PID: {pid}, PID exists: {pid_exists}") # DEBUG
-        if pid_exists:
-            print(f"Bot is already running for user {user_id}. Rejecting request.") # DEBUG
-            raise HTTPException(status_code=400, detail="You already have a bot running.")
-        else:
-            print(f"Stale session found for user {user_id}. Cleaning up.") # DEBUG
-            del user_bot_sessions[user_id]
-    else:
-        print(f"No existing session found for user {user_id}. Proceeding to start.") # DEBUG
+    if user_id in user_bot_sessions and psutil.pid_exists(user_bot_sessions[user_id].get('pid', -1)):
+        raise HTTPException(status_code=400, detail="You already have a bot running.")
 
-    # Validate against user's max_views
     if payload.views > user.get('max_views', 0):
         raise HTTPException(status_code=403, detail=f"You are not allowed to start more than {user.get('max_views', 0)} views.")
 
-    username = user.get("username", "UnknownUser")
-    proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
-
     try:
-        duration_seconds = payload.duration * 60
         stop_event = multiprocessing.Event()
-        status_dict = manager.dict({"running": True, "status_line": "Initializing..."})
-
         status_queue = manager.Queue()
 
         process = multiprocessing.Process(
             target=run_viewbot_logic, 
-            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration)
+            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration, payload.ramp_up_minutes)
         )
         process.start()
 
-        # Store the PID and status queue for the user
         user_bot_sessions[user_id] = {
             'pid': process.pid,
             'stop_event': stop_event,
             'status_queue': status_queue,
-            'last_status': 'Initializing...'  # Store the last known status
+            'last_status': {"is_running": True, "status_line": "Initializing..."},
+            'start_time': time.time(),
+            'duration': payload.duration * 60,
+            'target_viewers': payload.views
         }
 
         return {"message": "Bot started successfully"}
     except Exception as e:
-        # Clean up if something goes wrong
         if user_id in user_bot_sessions:
             del user_bot_sessions[user_id]
         raise HTTPException(status_code=500, detail=f"Server error: {e}")
@@ -255,11 +196,9 @@ async def stop_bot(user: dict = Depends(get_current_user)):
             proc = psutil.Process(session['pid'])
             session['stop_event'].set()
             proc.join(timeout=10)
-            
             if proc.is_running():
                 proc.terminate()
                 proc.join()
-
         except psutil.NoSuchProcess:
             pass
         finally:
@@ -281,58 +220,49 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
     session = user_bot_sessions.get(user_id)
 
     if session and psutil.pid_exists(session['pid']):
-        # Non-blockingly get the latest message from the queue
         while not session['status_queue'].empty():
             session['last_status'] = session['status_queue'].get_nowait()
         
-        return {"is_running": True, "status_line": session['last_status']}
+        elapsed_time = time.time() - session['start_time']
+        remaining_time = max(0, session['duration'] - elapsed_time)
+        progress = (elapsed_time / session['duration']) * 100 if session['duration'] > 0 else 0
+        
+        mins, secs = divmod(remaining_time, 60)
+        time_remaining_str = f"{int(mins):02d}:{int(secs):02d}"
+
+        last_status = session.get('last_status', {})
+        
+        return {
+            "is_running": True,
+            "current_viewers": last_status.get('current_viewers', 0),
+            "target_viewers": session.get('target_viewers', 0),
+            "time_elapsed_str": time_remaining_str,
+            "progress_percent": min(100, progress)
+        }
     else:
         if user_id in user_bot_sessions:
             del user_bot_sessions[user_id]
-        return {"is_running": False, "status_line": "Bot is not running."}
+        return {"is_running": False}
+
+# ... (keep the rest of the file as is)
 
 @app.post("/api/save-proxies")
 async def save_proxies(payload: ProxiesSaveRequest, user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required. Please log in again.")
-    if not user.get('is_owner'):
-        raise HTTPException(status_code=403, detail="Permission denied. You do not have owner privileges.")
+    if not user or not user.get('is_owner'):
+        raise HTTPException(status_code=403, detail="Permission denied.")
 
-    proxies = payload.proxies
     proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
-    temp_path = proxies_path + ".tmp"
-
     try:
-        with open(temp_path, "w") as f:
-            f.write(proxies)
-        
-        os.replace(temp_path, proxies_path)
-
-        # Stop all running bot instances to apply new proxies
-        for user_id, session in list(user_bot_sessions.items()):
-            if psutil.pid_exists(session['pid']):
-                try:
-                    proc = psutil.Process(session['pid'])
-                    session['stop_event'].set()
-                    proc.join(timeout=5)
-                    if proc.is_running():
-                        proc.terminate()
-                except psutil.NoSuchProcess:
-                    pass # Already gone
-            del user_bot_sessions[user_id]
-
-        return {"message": "Proxies saved. All running bots have been stopped to apply changes."}
+        with open(proxies_path, "w") as f:
+            f.write(payload.proxies)
+        return {"message": "Proxies saved successfully."}
     except Exception as e:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
         raise HTTPException(status_code=500, detail=f'Failed to save proxies: {e}')
 
 @app.get("/api/get-proxies")
 async def get_proxies(user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required. Please log in again.")
-    if not user.get('is_owner'):
-        raise HTTPException(status_code=403, detail="Permission denied. You do not have owner privileges.")
+    if not user or not user.get('is_owner'):
+        raise HTTPException(status_code=403, detail="Permission denied.")
     proxies_path = os.path.join(os.path.dirname(__file__), "proxies.txt")
     try:
         with open(proxies_path, "r") as f:
@@ -345,5 +275,3 @@ async def get_proxies(user: dict = Depends(get_current_user)):
 
 # --- Serve Frontend ---
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
-
-# The server must be started using run_server.py for multiprocessing to work correctly.
