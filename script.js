@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const menuItems = document.querySelectorAll('.menu-item');
     const viewbotControlsScreen = document.querySelector('.viewbot-controls');
     const viewbotStatusScreen = document.querySelector('.viewbot-status');
+    const viewbotSuccessScreen = document.querySelector('.viewbot-success');
     const viewsEndedModal = document.getElementById('views-ended-modal');
     const settingsPage = document.getElementById('settings-page');
     const logsPage = document.getElementById('logs-page');
@@ -47,8 +48,23 @@ document.addEventListener('DOMContentLoaded', () => {
     let botState = 'idle'; // State machine: idle, starting, running, stopping, ended
     let activePage = 'viewbot';
     let notificationsEnabled = true;
+    let statusFalseCount = 0;
 
     // --- Functions ---
+
+    function playSuccessSound() {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.5);
+    }
 
     function applyTheme(theme) {
         document.body.className = theme;
@@ -85,13 +101,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // Hide all pages first
         if (viewbotControlsScreen) viewbotControlsScreen.style.display = 'none';
         if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'none';
+        const viewbotSuccessScreen = document.querySelector('.viewbot-success');
+        if (viewbotSuccessScreen) viewbotSuccessScreen.style.display = 'none';
         if (settingsPage) settingsPage.style.display = 'none';
         if (logsPage) logsPage.style.display = 'none';
         if (supportPage) supportPage.style.display = 'none';
 
         // Show the correct page based on the active menu item and bot state
         if (activePage === 'viewbot') {
-            if (botState === 'running' || botState === 'starting' || botState === 'stopping' || botState === 'ended') {
+            if (botState === 'success') {
+                if (viewbotSuccessScreen) viewbotSuccessScreen.style.display = 'block';
+            } else if (botState === 'running' || botState === 'starting' || botState === 'stopping' || botState === 'ended') {
                 if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'block';
             } else { // idle
                 if (viewbotControlsScreen) viewbotControlsScreen.style.display = 'block';
@@ -222,6 +242,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateStatusUI(status);
 
                 if (status.is_running) {
+                    statusFalseCount = 0;
                     if (botState === 'idle' || botState === 'ended') {
                         botState = 'running';
                         startPolling();
@@ -231,9 +252,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         botState = 'ended';
                         stopPolling();
                     } else if (botState === 'running') {
-                        // Bot became not running while in running state
-                        showNotification('Bot Status Warning', 'Bot status became inactive. Check logs for details.');
-                        // Keep polling and state to allow recovery or manual stop
+                        statusFalseCount++;
+                        if (statusFalseCount > 5) {
+                            botState = 'ended';
+                            stopPolling();
+                            showNotification('Bot Stopped', 'Bot was inactive for too long and has been stopped.');
+                        } else {
+                            showNotification('Bot Status Warning', 'Bot status became inactive. Check logs for details.');
+                        }
+                        // Keep polling and state until count exceeds
                     } else {
                         botState = 'ended';
                         stopPolling();
@@ -268,6 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        statusFalseCount = 0;
         botState = 'starting';
         if(startBtn) {
             startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
@@ -293,9 +321,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (response.ok) {
-                botState = 'running';
-                startPolling();
-                showNotification('Viewbot Started', `Sending ${payload.views} views to ${payload.channel}`);
+                botState = 'success';
+                playSuccessSound();
+                showCorrectScreen();
+                setTimeout(() => {
+                    botState = 'running';
+                    startPolling();
+                    showNotification('Viewbot Started', `Sending ${payload.views} views to ${payload.channel}`);
+                }, 3000);
             } else {
                 const errorData = await response.json();
                 alert(`Error starting bot: ${errorData.detail}`);
@@ -374,6 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
         logoutButton.addEventListener('click', () => {
             localStorage.removeItem('accessToken');
             botState = 'idle';
+            statusFalseCount = 0;
             window.location.reload();
         });
     }
