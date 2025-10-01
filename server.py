@@ -1,6 +1,7 @@
 import os
 import asyncio
 import multiprocessing
+from multiprocessing import Process, Queue, Event
 import psutil
 import time
 import requests
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 from bot_logic import run_viewbot_logic
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from collections import deque
 
 # --- Pydantic Models ---
 class StartBotPayload(BaseModel):
