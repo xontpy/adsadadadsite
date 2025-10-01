@@ -19,7 +19,6 @@ class StartBotPayload(BaseModel):
     channel: str
     views: int
     duration: int
-    ramp_up_minutes: int = 0
 
 class ProxiesSaveRequest(BaseModel):
     proxies: str
@@ -158,15 +157,19 @@ async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_u
         raise HTTPException(status_code=403, detail=f"You are not allowed to start more than {user.get('max_views', 0)} views.")
 
     try:
+        duration_seconds = payload.duration * 60
         stop_event = multiprocessing.Event()
+        status_dict = manager.dict({"running": True, "status_line": "Initializing..."})
+
         status_queue = manager.Queue()
 
         process = multiprocessing.Process(
             target=run_viewbot_logic, 
-            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration, payload.ramp_up_minutes)
+            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration)
         )
         process.start()
 
+        # Store the PID and status queue for the user
         user_bot_sessions[user_id] = {
             'pid': process.pid,
             'stop_event': stop_event,
@@ -243,8 +246,6 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
         if user_id in user_bot_sessions:
             del user_bot_sessions[user_id]
         return {"is_running": False}
-
-# ... (keep the rest of the file as is)
 
 @app.post("/api/save-proxies")
 async def save_proxies(payload: ProxiesSaveRequest, user: dict = Depends(get_current_user)):
