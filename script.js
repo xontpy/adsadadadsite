@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Status screen elements
     const activeViewersSpan = document.getElementById('active-viewers');
     const targetViewersSpan = document.getElementById('target-viewers');
+    const totalDurationSpan = document.getElementById('total-duration');
     const timeRemainingSpan = document.getElementById('time-remaining');
     const progressBar = document.getElementById('progress-bar');
     const progressPercent = document.getElementById('progress-percent');
@@ -142,7 +143,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!status) return;
 
         if(activeViewersSpan) activeViewersSpan.textContent = `${status.current_viewers || 0} / ${status.target_viewers || 0}`;
-        if(timeRemainingSpan) timeRemainingSpan.textContent = status.time_elapsed_str || '00:00';
+        if(totalDurationSpan) totalDurationSpan.textContent = status.total_duration_str || 'Unlimited';
+        if(timeRemainingSpan) timeRemainingSpan.textContent = status.time_remaining_str || '00:00';
 
         const progress = status.progress_percent || 0;
         if(progressBar) progressBar.style.width = `${progress}%`;
@@ -152,6 +154,13 @@ document.addEventListener('DOMContentLoaded', () => {
             logContainer.innerHTML = status.logs.join('\n');
             logContainer.scrollTop = logContainer.scrollHeight;
         }
+
+        // Ensure menu items are always enabled
+        const menuItems = document.querySelectorAll('.menu-item');
+        menuItems.forEach(item => {
+            item.style.pointerEvents = 'auto';
+            item.style.opacity = '1';
+        });
     }
 
     async function pollStatus() {
