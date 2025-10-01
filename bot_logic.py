@@ -35,8 +35,8 @@ def load_proxies(logger):
         with open(file_path, "r") as f:
             proxies = [line.strip() for line in f if line.strip()]
         if not proxies:
-            logger(f"Error: '{file_path}' is empty. Please add proxies.")
-            return None
+            logger(f"Warning: '{file_path}' is empty. Proceeding without proxies - connections may fail or get banned.")
+            return []
         logger(f"Loaded {len(proxies)} proxies.")
         return proxies
     except FileNotFoundError:
@@ -67,19 +67,18 @@ def pick_proxy(logger, proxies_list):
 def get_channel_id(logger, channel_name, proxies_list):
     """Gets the channel ID using a synchronous request."""
     max_attempts = 5
-    for _ in range(max_attempts):
+    for attempt in range(max_attempts):
         proxy_dict, _ = pick_proxy(logger, proxies_list)
-        if not proxy_dict:
-            continue
         try:
             # Using firefox135 impersonation for better compatibility
-            with requests.Session(impersonate="firefox135", proxies=proxy_dict, timeout=10) as s:
+            session_kwargs = {"impersonate": "firefox135", "timeout": 10}
+            if proxy_dict:
+                session_kwargs["proxies"] = proxy_dict
+            with requests.Session(**session_kwargs) as s:
                 r = s.get(f"https://kick.com/api/v2/channels/{channel_name}")
                 if r.status_code == 200:
                     logger(f"Successfully found channel ID for {channel_name}.")
                     return r.json().get("id")
-                else:
-                    pass
         except Exception as e:
             pass
         time.sleep(1)
@@ -89,20 +88,19 @@ def get_channel_id(logger, channel_name, proxies_list):
 def get_token(logger, proxies_list):
     """Gets a viewer token using a synchronous request."""
     max_attempts = 5
-    for _ in range(max_attempts):
+    for attempt in range(max_attempts):
         proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
-        if not proxy_dict:
-            continue
         try:
-            with requests.Session(impersonate="firefox135", proxies=proxy_dict, timeout=15) as s:
+            session_kwargs = {"impersonate": "firefox135", "timeout": 15}
+            if proxy_dict:
+                session_kwargs["proxies"] = proxy_dict
+            with requests.Session(**session_kwargs) as s:
                 s.get("https://kick.com")
                 s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 r = s.get('https://websockets.kick.com/viewer/v1/token')
                 if r.status_code == 200:
                     token = r.json()["data"]["token"]
                     return token, proxy_url
-                else:
-                    logger(f"Token request failed with status {r.status_code}, retrying...")
         except Exception as e:
             pass  # logger(f"Token (Error: {e}), retrying...")
         time.sleep(1)
@@ -117,7 +115,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
     """
     async def connection_handler():
         # Stagger initial connections to avoid overwhelming proxies
-        await asyncio.sleep(random.random() * 0.5)
+        await asyncio.sleep(random.random() * 0.1)
         while not stop_event.is_set():
             token, proxy_url = get_token(logger, proxies_list)
             if not token:
@@ -148,9 +146,10 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                 logger(f"Connection failed for viewer {index}: {type(e).__name__}")
             finally:
                 # --- Viewer Disconnected ---
-                connected_viewers.discard(index)
-                # Update status immediately
-                logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
+                if not stop_event.is_set():
+                    connected_viewers.discard(index)
+                    # Update status immediately
+                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
 
             # Wait before retrying connection if the bot is still running
             if not stop_event.is_set():
@@ -190,7 +189,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         # Start viewer threads in batches to avoid detection
         if rapid:
             batch_size = 10
-            batch_delay = 0
+            batch_delay = 0.1
         else:
             batch_size = 10
             batch_delay = 5
