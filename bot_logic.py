@@ -180,32 +180,17 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         connected_viewers = set()
         threads = []
 
-        # Start viewer threads in batches to avoid overwhelming the system
-        batch_size = 25
-        for batch_start in range(0, viewers, batch_size):
+        # Start all viewer threads with stagger to avoid overwhelming the system
+        for i in range(viewers):
             if stop_event.is_set():
                 break
-            batch_end = min(batch_start + batch_size, viewers)
-            logger(f"Starting batch {batch_start // batch_size + 1}: threads {batch_start + 1} to {batch_end}")
-            for i in range(batch_start, batch_end):
-                if stop_event.is_set():
-                    break
-                t = threading.Thread(
-                    target=start_connection_thread,
-                    args=(logger, channel_id, i + 1, stop_event, proxies, connected_viewers, viewers)
-                )
-                threads.append(t)
-                t.start()
-                time.sleep(0.05)  # Small stagger within batch
-            # Update status immediately after batch start
-            status_update = {
-                "current_viewers": len(connected_viewers),
-                "target_viewers": viewers,
-                "is_running": True
-            }
-            logger(status_update)
-            # Wait between batches to allow connections to establish
-            time.sleep(3)
+            t = threading.Thread(
+                target=start_connection_thread,
+                args=(logger, channel_id, i + 1, stop_event, proxies, connected_viewers, viewers)
+            )
+            threads.append(t)
+            t.start()
+            time.sleep(0.1)  # Stagger thread starts
 
         # --- Monitoring Loop ---
         # This part is an adaptation for the web UI. It checks the timer and stop request,
