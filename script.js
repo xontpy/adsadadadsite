@@ -142,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateStatusUI(status) {
         if (!status) return;
 
-        if(activeViewersSpan) activeViewersSpan.textContent = `${status.current_viewers || 0} / ${status.target_viewers || 0}`;
+        if(activeViewersSpan) activeViewersSpan.textContent = status.current_viewers || 0;
         if(totalDurationSpan) totalDurationSpan.textContent = status.total_duration_str || 'Unlimited';
         if(timeRemainingSpan) timeRemainingSpan.textContent = status.time_remaining_str || '00:00';
 
