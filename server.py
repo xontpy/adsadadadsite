@@ -1,4 +1,10 @@
 import os
+# This environment variable MUST be set before any other imports that might
+# use it, especially FastAPI, Starlette, and Authlib. It tells the OAuth
+# library that it's okay to operate over plain HTTP, which is necessary
+# for local development.
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+
 import asyncio
 import multiprocessing
 from multiprocessing import Process, Queue, Event
@@ -292,4 +298,3 @@ app.mount("/", StaticFiles(directory=".", html=True), name="static")
 # This is the crucial fix: By setting this environment variable, we are telling the OAuth
 # library that it's acceptable to handle redirects over plain HTTP. This is safe and
 # necessary for a local development environment that isn't running with a TLS certificate.
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
