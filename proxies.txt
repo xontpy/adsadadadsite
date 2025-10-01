@@ -1,10 +1,1 @@
-142.111.48.253:7030:ngmjruwn:xqdhd7v2joxw
-198.23.239.134:6540:ngmjruwn:xqdhd7v2joxw
-45.38.107.97:6014:ngmjruwn:xqdhd7v2joxw
-107.172.163.27:6543:ngmjruwn:xqdhd7v2joxw
-64.137.96.74:6641:ngmjruwn:xqdhd7v2joxw
-154.203.43.247:5536:ngmjruwn:xqdhd7v2joxw
-84.247.60.125:6095:ngmjruwn:xqdhd7v2joxw
-216.10.27.159:6837:ngmjruwn:xqdhd7v2joxw
-142.111.67.146:5611:ngmjruwn:xqdhd7v2joxw
-142.147.128.93:6593:ngmjruwn:xqdhd7v2joxw
+
