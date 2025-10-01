@@ -70,8 +70,7 @@ def get_channel_id(logger, channel_name, proxies_list):
     for attempt in range(max_attempts):
         proxy_dict, _ = pick_proxy(logger, proxies_list)
         try:
-            # Using firefox135 impersonation for better compatibility
-            session_kwargs = {"impersonate": "firefox135", "timeout": 10}
+            session_kwargs = {"timeout": 10}
             if proxy_dict:
                 session_kwargs["proxies"] = proxy_dict
             with requests.Session(**session_kwargs) as s:
@@ -91,7 +90,7 @@ def get_token(logger, proxies_list):
     for attempt in range(max_attempts):
         proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
         try:
-            session_kwargs = {"impersonate": "firefox135", "timeout": 15}
+            session_kwargs = {"timeout": 15}
             if proxy_dict:
                 session_kwargs["proxies"] = proxy_dict
             with requests.Session(**session_kwargs) as s:
