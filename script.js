@@ -257,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     const status = await response.json();
                     isBotRunning = status.is_running;
-                    updateStatusDisplay(status);
+                    updateStatusDisplay(status); // Ensure status object is passed
                 }
 
                 if (isBotRunning !== wasRunning) {
