@@ -181,7 +181,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         threads = []
 
         logger(f"Sending {viewers} views to {channel}")
-        # Start all viewer threads with stagger to avoid overwhelming the system
+        # Start all viewer threads immediately
         for i in range(viewers):
             if stop_event.is_set():
                 break
@@ -191,7 +191,6 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             )
             threads.append(t)
             t.start()
-            time.sleep(0.1)  # Stagger thread starts
 
         # --- Monitoring Loop ---
         # This part is an adaptation for the web UI. It checks the timer and stop request,
