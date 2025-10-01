@@ -246,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         stopPolling();
                     } else if (botState === 'running') {
                         statusFalseCount++;
-                        if (statusFalseCount > 5) {
+                        if (statusFalseCount > 10) {
                             botState = 'ended';
                             stopPolling();
                             showNotification('Bot Stopped', 'Bot was inactive for too long and has been stopped.');
