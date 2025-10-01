@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- Constants ---
-    const API_BASE_URL = ''; // Assuming APIs are on the same host
+    const API_BASE_URL = ''; // Correct for single-server setup
 
     // --- Element References ---
     const loginButton = document.getElementById('login-button');
@@ -12,15 +12,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const premiumPlanBanner = document.querySelector('.premium-plan');
 
     const menuItems = document.querySelectorAll('.menu-item');
-    const viewbotPage = document.querySelector('.viewbot-controls');
-    const viewbotStatusPage = document.querySelector('.viewbot-status');
+    const viewbotControlsScreen = document.querySelector('.viewbot-controls');
+    const viewbotStatusScreen = document.querySelector('.viewbot-status');
+    const viewsEndedScreen = document.querySelector('.views-ended-status');
     const settingsPage = document.getElementById('settings-page');
     const logsPage = document.getElementById('logs-page');
 
     const startBtn = document.getElementById('start-btn');
     const stopBotButton = document.getElementById('stop-bot-button');
+    const viewsEndedDoneBtn = document.getElementById('views-ended-done-btn');
+
     const channelInput = document.getElementById('channel-input');
-    
     const viewersSlider = document.getElementById('views-input');
     const viewersValue = document.getElementById('views-value');
     const durationSlider = document.getElementById('duration-input');
@@ -28,58 +30,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Status screen elements
     const activeViewersSpan = document.getElementById('active-viewers');
+    const targetViewersSpan = document.getElementById('target-viewers');
     const timeRemainingSpan = document.getElementById('time-remaining');
-    const statusLine = document.getElementById('status-line');
     const progressBar = document.getElementById('progress-bar');
     const progressPercent = document.getElementById('progress-percent');
-    const logsContent = document.getElementById('logs-content');
+    const logContainer = document.getElementById('logs-content');
+    const finalViewersSpan = document.getElementById('final-viewers-count');
 
     // --- State Variables ---
-    let isBotRunning = false;
-    let wasRunning = false;
-    let timeRemaining = 0;
-    let statusInterval;
-    let durationInterval;
+    let statusPollInterval;
+    let botState = 'idle'; // State machine: idle, starting, running, stopping, ended
+    let activePage = 'viewbot';
 
     // --- Functions ---
 
-    function getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) return parts.pop().split(';').shift();
-        return null;
-    }
+    function showCorrectScreen() {
+        // Hide all pages first
+        viewbotControlsScreen.style.display = 'none';
+        viewbotStatusScreen.style.display = 'none';
+        viewsEndedScreen.style.display = 'none';
+        settingsPage.style.display = 'none';
+        logsPage.style.display = 'none';
 
-    function showPage(pageId) {
-        const pages = [viewbotPage, viewbotStatusPage, settingsPage, logsPage];
-        let pageToShow = null;
-
-        if (pageId === 'viewbot') {
-            pageToShow = isBotRunning ? viewbotStatusPage : viewbotPage;
-        } else if (pageId === 'settings') {
-            pageToShow = settingsPage;
-        } else if (pageId === 'logs') {
-            pageToShow = logsPage;
-        }
-        // Add other pages here if needed
-
-        pages.forEach(p => {
-            if (p && p.style.display !== 'none') {
-                p.style.display = 'none';
+        // Show the correct page based on the active menu item and bot state
+        if (activePage === 'viewbot') {
+            if (botState === 'running' || botState === 'starting' || botState === 'stopping') {
+                viewbotStatusScreen.style.display = 'block';
+            } else if (botState === 'ended') {
+                viewsEndedScreen.style.display = 'block';
+            } else { // idle
+                viewbotControlsScreen.style.display = 'block';
             }
-        });
-
-        if (pageToShow) {
-            pageToShow.style.display = 'block';
+        } else if (activePage === 'settings') {
+            settingsPage.style.display = 'block';
+        } else if (activePage === 'logs') {
+            logsPage.style.display = 'block';
         }
-
-        menuItems.forEach(item => {
-            if (item.dataset.page === pageId) {
-                item.classList.add('active');
-            } else {
-                item.classList.remove('active');
-            }
-        });
     }
 
     async function checkUserSession() {
@@ -97,7 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 showLoginState();
             }
         }
-        await pollStatus(true);
+        // Sync with server state on load
+        await pollStatus();
     }
 
     async function fetchUserData(token) {
@@ -139,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (userAvatar) userAvatar.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`;
 
         if (viewersSlider) {
-            viewersSlider.max = user.max_views || 500;
+            viewersSlider.max = user.max_views || 100;
             if (parseInt(viewersSlider.value) > viewersSlider.max) {
                 viewersSlider.value = viewersSlider.max;
             }
@@ -147,194 +134,146 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function startBot() {
-        const channel = channelInput.value;
-        const views = parseInt(viewersSlider.value, 10);
-        const duration = parseInt(durationSlider.value, 10);
+    function updateStatusUI(status) {
+        if (!status) return;
 
-        if (!channel) {
-            alert('Please enter a channel name.');
-            return;
+        activeViewersSpan.textContent = status.current_viewers || 0;
+        targetViewersSpan.textContent = status.target_viewers || 0;
+        timeRemainingSpan.textContent = status.time_elapsed_str || '00:00';
+
+        const progress = status.progress_percent || 0;
+        if(progressBar) progressBar.style.width = `${progress}%`;
+        if(progressPercent) progressPercent.textContent = `${Math.round(progress)}%`;
+
+        if (status.logs && logContainer) {
+            logContainer.innerHTML = status.logs.join('\n');
+            logContainer.scrollTop = logContainer.scrollHeight;
         }
+    }
 
+    async function pollStatus() {
         const token = localStorage.getItem('accessToken');
         if (!token) {
-            alert('You are not logged in. Please log in to start the bot.');
+            stopPolling();
             return;
         }
 
-        if(startBtn) {
-            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
-            startBtn.disabled = true;
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/status`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            const status = await response.json();
+
+            if (response.ok) {
+                updateStatusUI(status);
+
+                if (status.is_running) {
+                    if (botState === 'idle' || botState === 'ended') {
+                        botState = 'running';
+                        startPolling(); // Start continuous polling if bot is running
+                    }
+                } else { // Bot is not running
+                    if (botState === 'running' || botState === 'stopping') {
+                        botState = 'ended';
+                        finalViewersSpan.textContent = activeViewersSpan.textContent || 0;
+                    }
+                    stopPolling(); // Stop polling if bot is not running
+                }
+            } else {
+                 // Handle cases where status returns an error (e.g. 401)
+                if (botState === 'running') {
+                    botState = 'ended';
+                    finalViewersSpan.textContent = activeViewersSpan.textContent;
+                }
+                stopPolling();
+            }
+        } catch (error) {
+            console.error('Polling error:', error);
+            if (botState !== 'idle') botState = 'ended';
+            stopPolling();
+        } finally {
+            showCorrectScreen();
+        }
+    }
+
+    function startPolling() {
+        if (statusPollInterval) return; // Already polling
+        statusPollInterval = setInterval(pollStatus, 2000);
+    }
+
+    function stopPolling() {
+        clearInterval(statusPollInterval);
+        statusPollInterval = null;
+    }
+
+    async function startBot() {
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+            alert('Please log in first.');
+            return;
         }
 
+        botState = 'starting';
+        startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+        startBtn.disabled = true;
+        showCorrectScreen();
+
         const payload = {
-            channel: channel,
-            views: views,
-            duration: duration
+            channel: channelInput.value,
+            views: parseInt(viewersSlider.value, 10),
+            duration: parseInt(durationSlider.value, 10)
         };
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/start`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify(payload)
             });
 
             if (response.ok) {
                 botState = 'running';
-                showScreen('status');
-                logContainer.innerHTML = ''; // Clear logs
                 startPolling();
             } else {
                 const errorData = await response.json();
                 alert(`Error starting bot: ${errorData.detail}`);
+                botState = 'idle';
             }
         } catch (error) {
             alert(`Failed to connect to the server: ${error}`);
+            botState = 'idle';
+        } finally {
+            startBtn.innerHTML = 'Start Viewbot';
+            startBtn.disabled = false;
+            showCorrectScreen();
         }
     }
 
     async function stopBot() {
-        if(stopBotButton) {
-            stopBotButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
-            stopBotButton.disabled = true;
-        }
-
         const token = localStorage.getItem('accessToken');
+        if (!token) return;
+
+        botState = 'stopping';
+        stopBotButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
+        stopBotButton.disabled = true;
+        showCorrectScreen();
+
         try {
-            const response = await fetch(`${API_BASE_URL}/api/stop`, {
-                 method: 'POST',
-                  headers: { 'Authorization': `Bearer ${token}` }
+            await fetch(`${API_BASE_URL}/api/stop`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
             });
-            const data = await response.json();
-            if (response.ok) {
-                isBotRunning = false;
-                stopDurationTimer();
-                if (statusInterval) clearInterval(statusInterval);
-
-                // Manually update UI to show stopped state and modal
-                wasRunning = true; // Pretend we just came from a running state
-                updateStatusDisplay({ is_running: false });
-                showPage('viewbot');
-                wasRunning = false; // Reset for next run
-            } else {
-                throw new Error(data.detail || 'Failed to stop bot.');
-            }
+            // The poller will detect the stop and transition the state
         } catch (error) {
-            alert(`Error stopping bot: ${error.message}`);
+            alert(`Error stopping bot: ${error}`);
         } finally {
-            if(stopBotButton) {
-                stopBotButton.innerHTML = '<i class="fas fa-stop"></i> Stop Viewbot';
-                stopBotButton.disabled = false;
-            }
-        }
-    }
-
-    async function pollStatus(once = false) {
-        const executePoll = async () => {
-            const token = localStorage.getItem('accessToken');
-            if (!token) {
-                if (statusInterval) clearInterval(statusInterval);
-                return;
-            }
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/status`, {
-                     headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        localStorage.removeItem('accessToken');
-                        showLoginState();
-                    }
-                    isBotRunning = false;
-                } else {
-                    const status = await response.json();
-                    isBotRunning = status.is_running;
-                    updateStatusDisplay(status);
-                    
-                    if (status.logs && Array.isArray(status.logs)) {
-                        updateLogsDisplay(status.logs);
-                    }
-                }
-
-                if (isBotRunning !== wasRunning) {
-                    showPage('viewbot');
-                }
-                wasRunning = isBotRunning;
-
-            } catch (error) {
-                console.error('Polling error:', error.message);
-                isBotRunning = false;
-                if (isBotRunning !== wasRunning) showPage('viewbot');
-                wasRunning = false;
-            }
-        };
-
-        await executePoll();
-        if (!once) {
-            if (statusInterval) clearInterval(statusInterval);
-            statusInterval = setInterval(executePoll, 2000);
-        }
-    }
-
-    function startDurationTimer() {
-        if (durationInterval) clearInterval(durationInterval);
-        durationInterval = setInterval(() => {
-            timeRemaining--;
-            if (timeRemaining < 0) {
-                timeRemaining = 0;
-                clearInterval(durationInterval);
-            }
-            updateTimerDisplay();
-        }, 1000);
-    }
-
-    function stopDurationTimer() {
-        if (durationInterval) clearInterval(durationInterval);
-    }
-
-    function updateTimerDisplay() {
-        const minutes = Math.floor(timeRemaining / 60);
-        const seconds = timeRemaining % 60;
-        if (timeRemainingSpan) {
-            timeRemainingSpan.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        }
-    }
-
-    function updateStatusDisplay(data) {
-        const modal = document.getElementById('views-ended-modal');
-        if (wasRunning && !data.is_running && modal) {
-            modal.style.display = 'flex';
-        }
-
-        if (data.is_running) {
-            const statusText = data.status_line || 'Running...';
-            if(statusLine) statusLine.textContent = statusText;
-            
-            const currentViewers = data.current_viewers || 0;
-            const targetViewers = data.target_viewers || 0;
-            if(activeViewersSpan) activeViewersSpan.textContent = `${currentViewers} / ${targetViewers}`;
-
-            let progress = 0;
-            if (targetViewers > 0) {
-                progress = (currentViewers / targetViewers) * 100;
-            }
-            
-            if(progressBar) progressBar.style.width = `${progress}%`;
-            if(progressPercent) progressPercent.textContent = `${Math.round(progress)}%`;
-
-        } else {
-            if(statusLine) statusLine.textContent = data.status_line || 'Not running.';
-            if(progressBar) progressBar.style.width = '0%';
-            if(progressPercent) progressPercent.textContent = '0%';
-        }
-    }
-
-    function updateLogsDisplay(logs) {
-        if (logsContent) {
-            // Backend sends logs with newest first.
-            logsContent.innerHTML = logs.join('\n');
+            stopBotButton.innerHTML = '<i class="fas fa-stop"></i> Stop Viewbot';
+            stopBotButton.disabled = false;
+            await pollStatus(); // One last poll to get final state
         }
     }
 
@@ -342,28 +281,22 @@ document.addEventListener('DOMContentLoaded', () => {
     menuItems.forEach(item => {
         item.addEventListener('click', (e) => {
             e.preventDefault();
-            const pageId = item.dataset.page;
-            showPage(pageId);
+            activePage = item.dataset.page;
+            menuItems.forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            showCorrectScreen();
         });
     });
 
-    if (viewersSlider && viewersValue) {
+    if (viewersSlider) {
         viewersSlider.addEventListener('input', () => {
             viewersValue.textContent = viewersSlider.value;
         });
     }
 
-    if (durationSlider && durationValue) {
+    if (durationSlider) {
         durationSlider.addEventListener('input', () => {
             durationValue.textContent = `${durationSlider.value} min`;
-        });
-    }
-    
-    const viewsEndedDoneBtn = document.getElementById('views-ended-done-btn');
-    if (viewsEndedDoneBtn) {
-        viewsEndedDoneBtn.addEventListener('click', () => {
-            const modal = document.getElementById('views-ended-modal');
-            if(modal) modal.style.display = 'none';
         });
     }
 
@@ -373,120 +306,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    if(logoutButton) {
+    if (logoutButton) {
         logoutButton.addEventListener('click', () => {
             localStorage.removeItem('accessToken');
+            botState = 'idle';
             window.location.reload();
         });
     }
 
-    const viewsEndedScreen = document.querySelector('.views-ended-status');
-    const finalViewersSpan = document.getElementById('final-viewers-count');
-
-    let statusPollInterval;
-    let botState = 'idle'; // New state machine: idle, running, stopping, stopped
-
-    function showScreen(screenName) {
-        botControlsScreen.style.display = screenName === 'controls' ? 'block' : 'none';
-        statusScreen.style.display = screenName === 'status' ? 'block' : 'none';
-        viewsEndedScreen.style.display = screenName === 'ended' ? 'block' : 'none';
-    }
-
-    function updateStatus(status) {
-        if (!status) return;
-
-        // Update viewer counts
-        activeViewersSpan.textContent = status.current_viewers || 0;
-        targetViewersSpan.textContent = status.target_viewers || 0;
-
-        // Update progress bar
-        const progress = status.target_viewers > 0 ? (status.current_viewers / status.target_viewers) * 100 : 0;
-        progressBar.style.width = `${progress}%`;
-
-        // Update logs
-        if (status.log_line && !logContainer.innerHTML.includes(status.log_line)) {
-            const logEntry = document.createElement('p');
-            logEntry.textContent = status.log_line;
-            logContainer.appendChild(logEntry);
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
-
-        // --- State Machine Logic ---
-        if (botState === 'running' && !status.is_running) {
-            // Bot has finished or been stopped, transition to 'stopping'
-            botState = 'stopping';
-            finalViewersSpan.textContent = status.current_viewers || 0;
-            showScreen('ended');
-            stopPolling();
-        }
-    }
-
-    async function pollStatus() {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/status`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (response.ok) {
-                const status = await response.json();
-                updateStatus(status);
-            } else if (response.status === 404) {
-                // Bot process not found, means it finished or crashed
-                if (botState === 'running') {
-                    botState = 'stopping';
-                    finalViewersSpan.textContent = activeViewersSpan.textContent; // Use last known value
-                    showScreen('ended');
-                }
-                stopPolling();
-            }
-        } catch (error) {
-            console.error('Polling error:', error);
-            // Stop polling on network errors to prevent spamming
-            stopPolling();
-        }
-    }
-
-    function startPolling() {
-        if (statusPollInterval) return;
-        statusPollInterval = setInterval(pollStatus, 1000);
-    }
-
-    function stopPolling() {
-        clearInterval(statusPollInterval);
-        statusPollInterval = null;
-    }
-
-    async function startBot() {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/start`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (response.ok) {
-                botState = 'running';
-                showScreen('status');
-                logContainer.innerHTML = ''; // Clear logs
-                startPolling();
-            } else {
-                const errorData = await response.json();
-                alert(`Error starting bot: ${errorData.detail}`);
-            }
-        } catch (error) {
-            alert(`Failed to connect to the server: ${error}`);
-        }
-    }
-
-    async function stopBot() {
-        try {
-            await fetch(`${API_BASE_URL}/api/stop`, { method: 'POST' });
-            // The pollStatus logic will handle the screen transition
-        } catch (error) {
-            alert(`Error stopping bot: ${error}`);
-        }
-    }
-
-    // --- Event Listeners ---
     if (startBtn) {
         startBtn.addEventListener('click', startBot);
     }
@@ -495,6 +322,13 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBotButton.addEventListener('click', stopBot);
     }
 
-    // Initial setup
-    showScreen('controls');
+    if (viewsEndedDoneBtn) {
+        viewsEndedDoneBtn.addEventListener('click', () => {
+            botState = 'idle';
+            showCorrectScreen();
+        });
+    }
+
+    // --- Initial Load ---
+    checkUserSession();
 });
