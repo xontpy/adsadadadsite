@@ -164,27 +164,35 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
 
         start_time = time.time()
         connected_viewers = set()
-
-        logger(f"Spawning {viewers} viewer threads...")
         threads = []
-        for i in range(viewers):
-            if stop_event.is_set():
-                break
-            t = threading.Thread(target=start_connection_thread, args=(logger, channel_id, i + 1, stop_event, connected_viewers, proxies, viewers))
-            threads.append(t)
-            t.start()
-            time.sleep(0.1)
+        thread_counter = 0
 
-        logger(f"{len(threads)} threads spawned.")
+        logger(f"Starting viewer management for {viewers} viewers...")
 
-        # --- Main monitoring loop ---
+        # --- Main monitoring and management loop ---
         duration_seconds = duration_minutes * 60
         end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
+
         while time.time() < end_time and not stop_event.is_set():
-            # Check if all threads have died
-            if not any(t.is_alive() for t in threads):
-                logger("All viewer threads have stopped unexpectedly. Shutting down.")
-                break
+            # Clean up dead threads from the list
+            threads = [t for t in threads if t.is_alive()]
+
+            # Calculate how many new threads are needed
+            num_to_spawn = viewers - len(threads)
+
+            if num_to_spawn > 0:
+                logger(f"Found {len(threads)} active threads. Spawning {num_to_spawn} new ones...")
+                for _ in range(num_to_spawn):
+                    if stop_event.is_set():
+                        break
+                    thread_counter += 1
+                    t = threading.Thread(
+                        target=start_connection_thread,
+                        args=(logger, channel_id, thread_counter, stop_event, connected_viewers, proxies, viewers)
+                    )
+                    threads.append(t)
+                    t.start()
+                    time.sleep(0.05) # Stagger the thread starts slightly
 
             status_update = {
                 "current_viewers": len(connected_viewers),
@@ -192,7 +200,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                 "is_running": not stop_event.is_set()
             }
             logger(status_update)
-            time.sleep(1)
+            
+            # Sleep for a longer interval to reduce CPU usage, as threads are now self-managing.
+            time.sleep(5)
 
     except Exception as e:
         detailed_error = traceback.format_exc()
