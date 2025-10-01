@@ -60,21 +60,19 @@
                 </div>
                 <div class="slider-group">
                     <div class="slider-container">
-                        <label for="viewers-slider"><i class="fas fa-users"></i> Viewers</label>
-                        <input type="range" id="viewers-slider" min="1" max="500" value="50">
-                        <span class="slider-value" id="viewers-count">50</span>
+                        <label for="views-input"><i class="fas fa-users"></i> Viewers <span id="views-value" class="slider-value">100</span></label>
+                        <input type="range" id="views-input" min="1" max="1000" value="100">
                     </div>
                     <div class="slider-container">
-                        <label for="duration-slider"><i class="fas fa-clock"></i> Duration (minutes)</label>
-                        <input type="range" id="duration-slider" min="1" max="360" value="10">
-                        <span class="slider-value" id="duration-count">10</span>
+                        <label for="duration-input"><i class="fas fa-clock"></i> Duration <span id="duration-value" class="slider-value">60 min</span></label>
+                        <input type="range" id="duration-input" min="1" max="300" value="60">
                     </div>
                 </div>
                 <div class="control-group">
-                    <label for="ramp-up-time">Ramp-up Time (minutes, optional)</label>
-                    <input type="text" id="ramp-up-time" placeholder="Leave blank for instant arrival">
+                    <label for="rampup-input"><i class="fas fa-rocket"></i> Ramp-up (seconds)</label>
+                    <input type="number" id="rampup-input" placeholder="e.g., 60 for 1 minute ramp-up">
                 </div>
-                <button id="start-bot-button" class="start-button">
+                <button id="start-btn" class="start-button">
                     <i class="fas fa-play"></i> Start Viewbot
                 </button>
             </section>
@@ -125,6 +123,15 @@
         </main>
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/js/all.min.js"></script>
+    <!-- "Views Ended" Modal -->
+    <div id="views-ended-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h2>Task Complete</h2>
+            <p>Your views have ended.</p>
+            <button id="views-ended-done-btn" class="modal-button">Done</button>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
 </html>
