@@ -181,6 +181,11 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         duration_seconds = duration_minutes * 60
         end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
         while time.time() < end_time and not stop_event.is_set():
+            # Check if all threads have died
+            if not any(t.is_alive() for t in threads):
+                logger("All viewer threads have stopped unexpectedly. Shutting down.")
+                break
+
             status_update = {
                 "current_viewers": len(connected_viewers),
                 "target_viewers": viewers,
