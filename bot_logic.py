@@ -190,13 +190,13 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
 
         while time.time() < end_time and not stop_event.is_set():
-            # Clean up dead threads from the list
+            # Clean up dead threads from the list to allow for respawning
             threads = [t for t in threads if t.is_alive()]
 
-            # If we need more viewers, spawn them.
-            # This approach ensures we always try to maintain the target viewer count.
-            needed = viewers - len(threads)
-            for _ in range(needed):
+            # --- Gradual Thread Spawning ---
+            # Instead of creating all threads at once (a "thread bomb"), we spawn
+            # them gradually to prevent a massive resource spike that crashes the process.
+            if len(threads) < viewers:
                 if stop_event.is_set():
                     break
                 thread_counter += 1
@@ -214,8 +214,10 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             }
             logger(status_update)
             
-            # Sleep for a longer, more stable interval.
-            time.sleep(5)
+            # This sleep controls the rate of thread creation.
+            # A smaller value means a faster ramp-up. This will spawn
+            # up to 20 threads per second, a safe and stable rate.
+            time.sleep(0.05)
 
     except Exception as e:
         detailed_error = traceback.format_exc()
