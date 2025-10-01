@@ -1,6 +1,7 @@
 import asyncio
 import os
 import random
+import re
 import sys
 import threading
 import time
@@ -67,7 +68,7 @@ def pick_proxy(logger, proxies_list):
 def get_channel_id(logger, channel_name=None, proxies_list=None):
     """Gets the channel ID using synchronous requests (SYNC)."""
     for _ in range(5):
-        s = requests.Session(impersonate="firefox135")
+        s = requests.Session(impersonate="chrome")
         proxy_dict, _ = pick_proxy(logger, proxies_list)
         if not proxy_dict:
             continue
@@ -90,12 +91,14 @@ def get_token(logger, proxies_list):
     for attempt in range(max_attempts):
         proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
         try:
-            session_kwargs = {"impersonate": "firefox135", "timeout": 15}
+            session_kwargs = {"impersonate": "chrome", "timeout": 15}
             if proxy_dict:
                 session_kwargs["proxies"] = proxy_dict
             with requests.Session(**session_kwargs) as s:
-                s.get("https://kick.com")
-                s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+                r_kick = s.get("https://kick.com")
+                client_token_match = re.search(r'"clientToken"\s*:\s*"([^"]+)"', r_kick.text)
+                client_token = client_token_match.group(1) if client_token_match else "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+                s.headers["X-CLIENT-TOKEN"] = client_token
                 r = s.get('https://websockets.kick.com/viewer/v1/token')
                 if r.status_code == 200:
                     token = r.json()["data"]["token"]
@@ -123,7 +126,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
 
             try:
                 # Using AsyncSession for the WebSocket connection as in the original script
-                async with AsyncSession() as s:
+                async with AsyncSession(impersonate="chrome") as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
                     ws = await s.ws_connect(ws_url, proxy=proxy_url)
                     
