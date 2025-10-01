@@ -68,7 +68,7 @@ def pick_proxy(logger, proxies_list):
 def get_channel_id(logger, channel_name=None, proxies_list=None):
     """Gets the channel ID using synchronous requests (SYNC)."""
     for _ in range(5):
-        s = requests.Session(impersonate="chrome")
+        s = requests.Session(impersonate="Firefox135")
         proxy_dict, _ = pick_proxy(logger, proxies_list)
         if not proxy_dict:
             continue
@@ -84,7 +84,7 @@ def get_channel_id(logger, channel_name=None, proxies_list=None):
         time.sleep(1)
     logger("Failed to get channel ID after multiple retries with proxies. Retrying without proxy...")
     try:
-        s = requests.Session(impersonate="chrome")
+        s = requests.Session(impersonate="Firefox135")
         r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
         if r.status_code == 200:
             channel_id = r.json().get("id")
@@ -102,7 +102,7 @@ def get_token(logger, proxies_list):
     for attempt in range(max_attempts):
         proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
         try:
-            session_kwargs = {"impersonate": "chrome", "timeout": 15}
+            session_kwargs = {"impersonate": "Firefox135", "timeout": 15}
             if proxy_dict:
                 session_kwargs["proxies"] = proxy_dict
             with requests.Session(**session_kwargs) as s:
@@ -117,6 +117,23 @@ def get_token(logger, proxies_list):
         except Exception as e:
             pass  # logger(f"Token (Error: {e}), retrying...")
         time.sleep(1)
+    logger("Failed to get token after proxy retries. Retrying without proxy...")
+    try:
+        session_kwargs = {"impersonate": "Firefox135", "timeout": 15}
+        with requests.Session(**session_kwargs) as s:
+            r_kick = s.get("https://kick.com")
+            client_token_match = re.search(r'"clientToken"\s*:\s*"([^"]+)"', r_kick.text)
+            client_token = client_token_match.group(1) if client_token_match else "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+            s.headers["X-CLIENT-TOKEN"] = client_token
+            r = s.get('https://websockets.kick.com/viewer/v1/token')
+            if r.status_code == 200:
+                token = r.json()["data"]["token"]
+                proxy_url = None
+                logger("Got token without proxy.")
+                return token, proxy_url
+    except Exception as e:
+        logger(f"Failed to get token without proxy: {e}")
+    logger("Failed to get token after all retries.")
     return None, None
 
 def start_connection_thread(logger, channel_id, index, stop_event, proxies_list, connected_viewers, total_viewers):
@@ -137,7 +154,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
 
             try:
                 # Using AsyncSession for the WebSocket connection as in the original script
-                async with AsyncSession(impersonate="chrome") as s:
+                async with AsyncSession(impersonate="Firefox135") as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
                     ws = await s.ws_connect(ws_url, proxy=proxy_url)
                     
