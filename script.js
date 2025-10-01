@@ -29,6 +29,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const durationSlider = document.getElementById('duration-input');
     const durationValue = document.getElementById('duration-value');
 
+    // Settings elements
+    const themeSelect = document.getElementById('theme-select');
+    const notificationsToggle = document.getElementById('notifications-toggle');
+
     // Status screen elements
     const activeViewersSpan = document.getElementById('active-viewers');
     const targetViewersSpan = document.getElementById('target-viewers');
@@ -42,8 +46,40 @@ document.addEventListener('DOMContentLoaded', () => {
     let statusPollInterval;
     let botState = 'idle'; // State machine: idle, starting, running, stopping, ended
     let activePage = 'viewbot';
+    let notificationsEnabled = true;
 
     // --- Functions ---
+
+    function applyTheme(theme) {
+        document.body.className = theme;
+        localStorage.setItem('theme', theme);
+    }
+
+    function requestNotificationPermission() {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    }
+
+    function showNotification(title, body) {
+        if (notificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification(title, { body: body, icon: '/assets/logo.png' });
+        }
+    }
+
+    function loadSettings() {
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        if (themeSelect) themeSelect.value = savedTheme;
+        applyTheme(savedTheme);
+
+        const savedNotifications = localStorage.getItem('notifications');
+        notificationsEnabled = savedNotifications !== null ? savedNotifications === 'true' : true;
+        if (notificationsToggle) notificationsToggle.checked = notificationsEnabled;
+
+        if (notificationsEnabled) {
+            requestNotificationPermission();
+        }
+    }
 
     function showCorrectScreen() {
         // Hide all pages first
@@ -210,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startPolling() {
         if (statusPollInterval) return;
-        statusPollInterval = setInterval(pollStatus, 5000);
+        statusPollInterval = setInterval(pollStatus, 2000);
     }
 
     function stopPolling() {
@@ -235,7 +271,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const payload = {
             channel: channelInput.value,
             views: parseInt(viewersSlider.value, 10),
-            duration: parseInt(durationSlider.value, 10)
+            duration: parseInt(durationSlider.value, 10),
+            rapid: document.getElementById('rapid-toggle').checked
         };
 
         try {
@@ -251,6 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 botState = 'running';
                 startPolling();
+                showNotification('Viewbot Started', `Sending ${payload.views} views to ${payload.channel}`);
             } else {
                 const errorData = await response.json();
                 alert(`Error starting bot: ${errorData.detail}`);
@@ -284,6 +322,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+            showNotification('Viewbot Stopped', 'The viewbot has been stopped.');
         } catch (error) {
             alert(`Error stopping bot: ${error}`);
         } finally {
@@ -348,6 +387,23 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (themeSelect) {
+        themeSelect.addEventListener('change', () => {
+            applyTheme(themeSelect.value);
+        });
+    }
+
+    if (notificationsToggle) {
+        notificationsToggle.addEventListener('change', () => {
+            notificationsEnabled = notificationsToggle.checked;
+            localStorage.setItem('notifications', notificationsEnabled);
+            if (notificationsEnabled) {
+                requestNotificationPermission();
+            }
+        });
+    }
+
     // --- Initial Load ---
+    loadSettings();
     checkUserSession();
 });
