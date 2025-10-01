@@ -96,7 +96,6 @@ def get_token(logger, proxies_list):
         try:
             with requests.Session(impersonate="firefox135", proxies=proxy_dict, timeout=15) as s:
                 s.get("https://kick.com")
-                s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 r = s.get('https://websockets.kick.com/viewer/v1/token')
                 if r.status_code == 200:
                     token = r.json()["data"]["token"]
@@ -124,7 +123,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
 
             try:
                 # Using AsyncSession for the WebSocket connection as in the original script
-                async with AsyncSession() as s:
+                async with AsyncSession(impersonate="firefox135") as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
                     ws = await s.ws_connect(ws_url, proxy=proxy_url)
                     
@@ -135,7 +134,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                     counter = 0
                     while not stop_event.is_set():
                         counter += 1
-                        payload = {"type": "ping"} if counter % 2 == 0 else {"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}}
+                        payload = {"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}} if counter % 2 == 0 else {"type": "ping"}
                         await ws.send_json(payload)
                         # Delay between pings/handshakes
                         await asyncio.sleep(11 + random.randint(2, 7))
