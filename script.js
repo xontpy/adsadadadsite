@@ -246,13 +246,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         stopPolling();
                     } else if (botState === 'running') {
                         statusFalseCount++;
-                        if (statusFalseCount > 50) {
-                            botState = 'ended';
-                            stopPolling();
-                            showNotification('Bot Stopped', 'Bot was inactive for too long and has been stopped.');
-                        } else {
+                        // Disabled automatic reset to prevent UI from resetting
+                        // if (statusFalseCount > 50) {
+                        //     botState = 'ended';
+                        //     stopPolling();
+                        //     showNotification('Bot Stopped', 'Bot was inactive for too long and has been stopped.');
+                        // } else {
                             showNotification('Bot Status Warning', 'Bot status became inactive. Check logs for details.');
-                        }
+                        // }
                         // Keep polling and state until count exceeds
                     } else {
                         botState = 'ended';
