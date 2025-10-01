@@ -116,6 +116,8 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
     - Update the `connected_viewers` set for accurate UI reporting.
     """
     async def connection_handler():
+        # Stagger initial connections to avoid overwhelming proxies
+        await asyncio.sleep(random.random() * 0.5)
         while not stop_event.is_set():
             token, proxy_url = get_token(logger, proxies_list)
             if not token:
@@ -161,7 +163,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
         logger(f"Critical error in thread {index}: {e}\n{traceback.format_exc()}")
 
 # This is the main entry point called by the web server.
-def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
+def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, rapid=False):
     """
     This function orchestrates the bot based on the logic from main(2).py's `if __name__ == "__main__"` block.
     """
@@ -186,7 +188,12 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
 
         logger(f"Sending {viewers} views to {channel}")
         # Start viewer threads in batches to avoid detection
-        batch_size = 10
+        if rapid:
+            batch_size = 1
+            batch_delay = 0.1
+        else:
+            batch_size = 10
+            batch_delay = 5
         for i in range(0, viewers, batch_size):
             if stop_event.is_set():
                 break
@@ -198,7 +205,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                 )
                 threads.append(t)
                 t.start()
-            time.sleep(5)  # Delay between batches
+            time.sleep(batch_delay)  # Delay between batches
 
         # --- Monitoring Loop ---
         # This part is an adaptation for the web UI. It checks the stop request,
@@ -247,4 +254,4 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             t.join(timeout=3) # Give threads 3 seconds to exit cleanly
             
         logger("Bot process has stopped.")
-        logger({"is_running": False, "current_viewers": 0})
+        logger({"is_running": False, "current_viewers": len(connected_viewers)})
