@@ -144,46 +144,53 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
     - Update the `connected_viewers` set for accurate UI reporting.
     """
     async def connection_handler():
-        # Stagger initial connections to avoid overwhelming proxies
-        await asyncio.sleep(random.random() * 0.1)
-        while not stop_event.is_set():
-            token, proxy_url = get_token(logger, proxies_list)
-            if not token:
-                await asyncio.sleep(5)
-                continue
+        try:
+            # Stagger initial connections to avoid overwhelming proxies
+            await asyncio.sleep(random.random() * 0.1)
+            while not stop_event.is_set():
+                try:
+                    token, proxy_url = get_token(logger, proxies_list)
+                    if not token:
+                        await asyncio.sleep(5)
+                        continue
 
-            try:
-                # Using AsyncSession for the WebSocket connection as in the original script
-                async with AsyncSession(impersonate="firefox") as s:
-                    ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
-                    ws = await s.ws_connect(ws_url, proxy=proxy_url)
-                    
-                    # --- Viewer Connected ---
-                    connected_viewers.add(index)
-                    logger(f"Viewer {index} connected successfully")
-                    # Update status immediately
-                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
-                    
-                    counter = 0
-                    while not stop_event.is_set():
-                        counter += 1
-                        payload = {"type": "ping"} if counter % 2 == 0 else {"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}}
-                        await ws.send_json(payload)
-                        # Delay between pings/handshakes
-                        await asyncio.sleep(11 + random.randint(2, 7))
+                    try:
+                        # Using AsyncSession for the WebSocket connection as in the original script
+                        async with AsyncSession(impersonate="firefox") as s:
+                            ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
+                            ws = await s.ws_connect(ws_url, proxy=proxy_url)
 
-            except Exception as e:
-                logger(f"Connection failed for viewer {index}: {type(e).__name__}")
-            finally:
-                # --- Viewer Disconnected ---
-                if not stop_event.is_set():
-                    connected_viewers.discard(index)
-                    # Update status immediately
-                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
+                            # --- Viewer Connected ---
+                            connected_viewers.add(index)
+                            logger(f"Viewer {index} connected successfully")
+                            # Update status immediately
+                            logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
 
-            # Wait before retrying connection if the bot is still running
-            if not stop_event.is_set():
-                await asyncio.sleep(random.randint(5, 10))
+                            counter = 0
+                            while not stop_event.is_set():
+                                counter += 1
+                                payload = {"type": "ping"} if counter % 2 == 0 else {"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}}
+                                await ws.send_json(payload)
+                                # Delay between pings/handshakes
+                                await asyncio.sleep(11 + random.randint(2, 7))
+
+                    except Exception as e:
+                        logger(f"Connection failed for viewer {index}: {type(e).__name__}")
+                    finally:
+                        # --- Viewer Disconnected ---
+                        if not stop_event.is_set():
+                            connected_viewers.discard(index)
+                            # Update status immediately
+                            logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
+
+                    # Wait before retrying connection if the bot is still running
+                    if not stop_event.is_set():
+                        await asyncio.sleep(random.randint(5, 10))
+                except Exception as e:
+                    logger(f"Error in connection loop for viewer {index}: {e}")
+                    await asyncio.sleep(5)
+        except Exception as e:
+            logger(f"Critical error in connection_handler for viewer {index}: {e}")
 
     try:
         # Each thread runs its own asyncio event loop, as in the original script
