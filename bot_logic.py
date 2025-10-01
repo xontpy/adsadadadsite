@@ -145,7 +145,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
     except Exception as e:
         logger(f"Critical error in thread {index}: {e}\n{traceback.format_exc()}")
 
-def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, viewer_speed, batch_size):
+def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, ramp_up_time):
     """The main function to run the bot, adapted for the website."""
     logger = lambda msg: bot_logger(status_updater, msg)
     
@@ -167,7 +167,26 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         threads = []
         thread_counter = 0
 
-        logger(f"Starting viewer management for {viewers} viewers...")
+        # --- Ramp-up Calculation ---
+        # We'll divide the ramp-up into a fixed number of batches for smooth delivery.
+        NUM_BATCHES = 20 
+        
+        if ramp_up_time > 0 and viewers > 0:
+            # Calculate batch size and delay, ensuring batch_size is at least 1.
+            batch_size = max(1, viewers // NUM_BATCHES)
+            # Calculate delay, but handle case where ramp_up_time is small
+            try:
+                # Calculate the number of batches that will actually run
+                num_actual_batches = (viewers + batch_size - 1) // batch_size
+                delay_between_batches = ramp_up_time / num_actual_batches if num_actual_batches > 1 else 0
+            except ZeroDivisionError:
+                delay_between_batches = 0
+        else:
+            # If ramp-up is 0, send all at once.
+            batch_size = viewers if viewers > 0 else 1
+            delay_between_batches = 0
+
+        logger(f"Ramp-up: {batch_size} viewers per batch with a {delay_between_batches:.2f}s delay.")
 
         # --- Main monitoring and management loop ---
         duration_seconds = duration_minutes * 60
@@ -182,25 +201,30 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
 
             if num_to_spawn > 0:
                 logger(f"Found {len(threads)} active threads. Spawning {num_to_spawn} new ones...")
-                for i in range(num_to_spawn):
+                
+                # Spawn viewers in calculated batches
+                for i in range(0, num_to_spawn, batch_size):
                     if stop_event.is_set():
                         break
-                    thread_counter += 1
-                    t = threading.Thread(
-                        target=start_connection_thread,
-                        args=(logger, channel_id, thread_counter, stop_event, connected_viewers, proxies, viewers)
-                    )
-                    threads.append(t)
-                    t.start()
+                    
+                    current_batch_size = min(batch_size, num_to_spawn - i)
+                    logger(f"Spawning a batch of {current_batch_size} viewers...")
 
-                    # After each thread, check if a batch is complete
-                    is_batch_boundary = (i + 1) % batch_size == 0
-                    is_last_spawn = (i + 1) == num_to_spawn
+                    for _ in range(current_batch_size):
+                        if stop_event.is_set():
+                            break
+                        thread_counter += 1
+                        t = threading.Thread(
+                            target=start_connection_thread,
+                            args=(logger, channel_id, thread_counter, stop_event, connected_viewers, proxies, viewers)
+                        )
+                        threads.append(t)
+                        t.start()
 
-                    if (is_batch_boundary or is_last_spawn):
-                        # A viewer_speed of 0.01 (the minimum) means "as fast as possible"
-                        if viewer_speed > 0.01:
-                            time.sleep(viewer_speed)
+                    # If there are more viewers to spawn, sleep before the next batch
+                    if (i + batch_size) < num_to_spawn and not stop_event.is_set():
+                        if delay_between_batches > 0:
+                            time.sleep(delay_between_batches)
 
             status_update = {
                 "current_viewers": len(connected_viewers),
