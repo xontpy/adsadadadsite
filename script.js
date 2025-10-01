@@ -25,8 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const viewersValue = document.getElementById('views-value');
     const durationSlider = document.getElementById('duration-input');
     const durationValue = document.getElementById('duration-value');
-    const rampUpInput = document.getElementById('ramp-up-input');
-    const rampUpValue = document.getElementById('ramp-up-value');
 
     // Status screen elements
     const activeViewersSpan = document.getElementById('active-viewers');
@@ -153,7 +151,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const channel = channelInput.value;
         const views = parseInt(viewersSlider.value, 10);
         const duration = parseInt(durationSlider.value, 10);
-        const rampUpTime = parseInt(rampUpInput.value, 10);
 
         if (!channel) {
             alert('Please enter a channel name.');
@@ -174,8 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const payload = {
             channel: channel,
             views: views,
-            duration: duration,
-            ramp_up_time: rampUpTime
+            duration: duration
         };
 
         try {
@@ -372,12 +368,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (durationSlider && durationValue) {
         durationSlider.addEventListener('input', () => {
             durationValue.textContent = `${durationSlider.value} min`;
-        });
-    }
-
-    if (rampUpInput && rampUpValue) {
-        rampUpInput.addEventListener('input', () => {
-            rampUpValue.textContent = `${rampUpInput.value}s`;
         });
     }
     
