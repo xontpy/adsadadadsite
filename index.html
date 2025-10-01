@@ -14,68 +14,117 @@
         <div class="shape shape3"></div>
         <div class="shape shape4"></div>
     </div>
-    <div id="status-box" class="status-box"></div>
     <div class="container">
-        <header>
-            <div id="user-profile" class="user-profile" style="display: none;">
-                <img id="user-avatar" src="" alt="Avatar">
-                <div class="user-details">
-                    <span id="username"></span>
-                    <span id="permissions"></span>
-                </div>
-                <button id="logout-button" class="btn-logout"><i class="fas fa-sign-out-alt"></i></button>
+        <aside class="sidebar">
+            <div class="logo">
+                KICKBOT <sup>BETA</sup>
             </div>
-            <button id="login-button" class="btn-discord" style="display: block;">
-                <i class="fab fa-discord"></i> Login with Discord
-            </button>
-        </header>
-
-        <main id="control-panel">
-            <div class="tabs">
-                <button class="tab-button active" data-tab="viewbot-content">
-                    <i class="fas fa-eye"></i> Viewbot
+            <nav class="menu">
+                <a href="#" class="menu-item active" data-page="viewbot"><i class="fas fa-eye"></i> Viewbot</a>
+                <a href="#" class="menu-item" data-page="settings"><i class="fas fa-cog"></i> Settings</a>
+                <a href="#" class="menu-item" data-page="support"><i class="fas fa-question-circle"></i> Support</a>
+            </nav>
+            <div class="user-profile-sidebar">
+                 <div id="user-profile" class="user-profile" style="display: none;">
+                    <img id="user-avatar" src="" alt="Avatar">
+                    <div class="user-details">
+                        <span id="username"></span>
+                        <span id="permissions" class="premium-badge"></span>
+                    </div>
+                    <button id="logout-button" class="btn-logout"><i class="fas fa-sign-out-alt"></i></button>
+                </div>
+                 <button id="login-button" class="btn-discord" style="display: block;">
+                    <i class="fab fa-discord"></i> Login with Discord
                 </button>
-                <button class="tab-button" data-tab="proxies-content">
-                    <i class="fas fa-server"></i> Proxies
+                <div class="social-icons">
+                    <a href="#"><i class="fab fa-discord"></i></a>
+                    <a href="#"><i class="fab fa-telegram-plane"></i></a>
+                </div>
+            </div>
+        </aside>
+        <main class="main-content">
+            <header class="main-header">
+                <h1>Kick Viewbot</h1>
+                <div class="premium-plan">
+                    <i class="fas fa-crown"></i>
+                    <div>
+                        <span>Pro Plan</span>
+                        <small>Enjoy full access to our tools.</small>
+                    </div>
+                </div>
+            </header>
+            <section class="viewbot-controls">
+                <div class="control-group">
+                    <label for="channel-input">Kick Username</label>
+                    <input type="text" id="channel-input" placeholder="e.g., XQC">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-container">
+                        <label for="viewers-slider"><i class="fas fa-users"></i> Viewers</label>
+                        <input type="range" id="viewers-slider" min="1" max="500" value="50">
+                        <span class="slider-value" id="viewers-count">50</span>
+                    </div>
+                    <div class="slider-container">
+                        <label for="duration-slider"><i class="fas fa-clock"></i> Duration (minutes)</label>
+                        <input type="range" id="duration-slider" min="1" max="360" value="10">
+                        <span class="slider-value" id="duration-count">10</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label for="ramp-up-time">Ramp-up Time (minutes, optional)</label>
+                    <input type="text" id="ramp-up-time" placeholder="Leave blank for instant arrival">
+                </div>
+                <button id="start-bot-button" class="start-button">
+                    <i class="fas fa-play"></i> Start Viewbot
                 </button>
-            </div>
-
-            <div id="viewbot-content" class="tab-content active">
-                <div class="controls">
-                    <div class="control-group">
-                        <label for="channel-input"><i class="fas fa-tv"></i> Kick Channel</label>
-                        <input type="text" id="channel-input" placeholder="Enter channel name">
+            </section>
+            <section class="viewbot-status" style="display: none;">
+                <div class="status-icon">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <h2>Viewbot is Active</h2>
+                <p>Started sending viewers. The viewbot will run for the specified duration.</p>
+                <div class="status-details">
+                    <div class="status-box">
+                        <span id="active-viewers">0 / 10000</span>
+                        <small>ACTIVE VIEWERS</small>
                     </div>
-                    <div class="control-group">
-                        <label for="viewers-input"><i class="fas fa-users"></i> Viewers (<span id="viewers-count">100</span>)</label>
-                        <input type="range" id="viewers-slider" min="1" max="100" value="100">
-                    </div>
-                    <div class="control-group">
-                        <label for="duration-input"><i class="fas fa-clock"></i> Duration (<span id="duration-count">60</span> mins)</label>
-                        <input type="range" id="duration-slider" min="1" max="360" value="60">
+                    <div class="status-box">
+                        <span id="time-elapsed">00:00</span>
+                        <small>TIME ELAPSED</small>
                     </div>
                 </div>
-                <div class="col-md-6">
-                    <button id="start-bot-button" class="btn btn-success btn-block">
-                        <img src="assets/icons/start-view-icon.svg" alt="" style="width: 16px; height: 16px; margin-bottom: 2px;"> 
-                        <span>Start Views</span>
-                    </button>
-                </div>
-                <div class="col-md-6">
-                    <div id="bot-status-container" style="display: none;">
-                        <h4>Bot Status</h4>
-                        <p id="bot-status-line"></p>
+                <div class="progress-container">
+                    <label>Progress</label>
+                    <div class="progress-bar">
+                        <div class="progress" id="progress-bar" style="width: 0%;"></div>
                     </div>
+                    <span id="progress-percent">0%</span>
                 </div>
-            </div>
-
-            <div id="proxies-content" class="tab-content" style="display: none;">
-                <textarea id="proxies-textarea" placeholder="Enter proxies, one per line..."></textarea>
-                <button id="save-proxies-button" class="btn btn-primary"><i class="fas fa-save"></i> Save Proxies</button>
-            </div>
+                <button id="stop-bot-button" class="stop-button">
+                    <i class="fas fa-stop"></i> Stop Viewbot
+                </button>
+            </section>
+            <section id="settings-page" class="page" style="display: none;">
+                <h2>Settings</h2>
+                <div class="setting-option">
+                    <label for="theme-select">Theme</label>
+                    <select id="theme-select">
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                    </select>
+                </div>
+                <div class="setting-option">
+                    <label for="notifications-toggle">Enable Notifications</label>
+                    <label class="switch">
+                        <input type="checkbox" id="notifications-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+            </section>
         </main>
     </div>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/js/all.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
