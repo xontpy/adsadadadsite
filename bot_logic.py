@@ -224,7 +224,14 @@ async def run_bot_async(logger, stop_event, channel, viewers, duration_minutes):
             status_line = f"Time Left: {int(mins):02d}:{int(secs):02d} | Sending Views: {len(connected_viewers)}/{viewers}"
         else:
             status_line = f"Sending Views: {len(connected_viewers)}/{viewers} (Running indefinitely)"
-        logger(status_line)
+        
+        status_update = {
+            "status_line": status_line,
+            "current_viewers": len(connected_viewers),
+            "target_viewers": viewers,
+            "is_running": not stop_event.is_set()
+        }
+        logger(status_update)
         await asyncio.sleep(1)
 
     # --- Shutdown sequence ---
