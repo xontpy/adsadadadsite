@@ -179,7 +179,8 @@ async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_u
             'last_status': {"is_running": True, "status_line": "Initializing..."},
             'start_time': time.time(),
             'duration': payload.duration * 60,
-            'target_viewers': payload.views
+            'target_viewers': payload.views,
+            'logs': deque(maxlen=100)
         }
 
         return {"message": "Bot started successfully"}
@@ -219,14 +220,18 @@ async def stop_bot(user: dict = Depends(get_current_user)):
 @app.get("/api/status")
 async def get_bot_status(user: dict = Depends(get_current_user)):
     if not user:
-        return {"is_running": False, "status_line": "Not logged in."}
+        return {"is_running": False, "status_line": "Not logged in.", "logs": []}
 
     user_id = user['id']
     session = user_bot_sessions.get(user_id)
 
-    if session and psutil.pid_exists(session['pid']):
+    if session and psutil.pid_exists(session.get('pid', -1)):
         while not session['status_queue'].empty():
-            session['last_status'] = session['status_queue'].get_nowait()
+            message = session['status_queue'].get_nowait()
+            if isinstance(message, dict) and 'log_line' in message:
+                session['logs'].append(message['log_line'])
+            else:
+                session['last_status'] = message
         
         elapsed_time = time.time() - session['start_time']
         remaining_time = max(0, session['duration'] - elapsed_time)
@@ -242,12 +247,15 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
             "current_viewers": last_status.get('current_viewers', 0),
             "target_viewers": session.get('target_viewers', 0),
             "time_elapsed_str": time_remaining_str,
-            "progress_percent": min(100, progress)
+            "progress_percent": min(100, progress),
+            "logs": list(session['logs'])
         }
     else:
         if user_id in user_bot_sessions:
-            del user_bot_sessions[user_id]
-        return {"is_running": False}
+            session = user_bot_sessions.pop(user_id)
+            logs = list(session.get('logs', []))
+            return {"is_running": False, "logs": logs}
+        return {"is_running": False, "logs": []}
 
 @app.post("/api/save-proxies")
 async def save_proxies(payload: ProxiesSaveRequest, user: dict = Depends(get_current_user)):
