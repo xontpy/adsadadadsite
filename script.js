@@ -14,7 +14,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const menuItems = document.querySelectorAll('.menu-item');
     const viewbotControlsScreen = document.querySelector('.viewbot-controls');
     const viewbotStatusScreen = document.querySelector('.viewbot-status');
-    const viewbotSuccessScreen = document.querySelector('.viewbot-success');
     const viewsEndedModal = document.getElementById('views-ended-modal');
     const settingsPage = document.getElementById('settings-page');
     const logsPage = document.getElementById('logs-page');
@@ -101,17 +100,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // Hide all pages first
         if (viewbotControlsScreen) viewbotControlsScreen.style.display = 'none';
         if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'none';
-        const viewbotSuccessScreen = document.querySelector('.viewbot-success');
-        if (viewbotSuccessScreen) viewbotSuccessScreen.style.display = 'none';
         if (settingsPage) settingsPage.style.display = 'none';
         if (logsPage) logsPage.style.display = 'none';
         if (supportPage) supportPage.style.display = 'none';
 
         // Show the correct page based on the active menu item and bot state
         if (activePage === 'viewbot') {
-            if (botState === 'success') {
-                if (viewbotSuccessScreen) viewbotSuccessScreen.style.display = 'block';
-            } else if (botState === 'running' || botState === 'starting' || botState === 'stopping' || botState === 'ended') {
+            if (botState === 'running' || botState === 'starting' || botState === 'stopping' || botState === 'ended') {
                 if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'block';
             } else { // idle
                 if (viewbotControlsScreen) viewbotControlsScreen.style.display = 'block';
@@ -321,14 +316,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (response.ok) {
-                botState = 'success';
                 playSuccessSound();
-                showCorrectScreen();
-                setTimeout(() => {
-                    botState = 'running';
-                    startPolling();
-                    showNotification('Viewbot Started', `Sending ${payload.views} views to ${payload.channel}`);
-                }, 3000);
+                botState = 'running';
+                startPolling();
+                showNotification('Viewbot Started', `Sending ${payload.views} views to ${payload.channel}`);
             } else {
                 const errorData = await response.json();
                 alert(`Error starting bot: ${errorData.detail}`);
