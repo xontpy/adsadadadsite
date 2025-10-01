@@ -101,21 +101,28 @@ def get_token(logger, proxies_list):
         time.sleep(1)
     return None, None
 
-def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers, proxies_list, total_viewers):
-    """The main logic for a single viewer thread."""
+def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers, proxies_list, total_viewers, semaphore):
+    """The main logic for a single viewer thread, with semaphore control."""
     
     async def connection_handler():
         while not stop_event.is_set():
-            token, proxy_url = get_token(logger, proxies_list)
-            if not token:
-                logger(f"Viewer {index}: Failed to get token, retrying in 3s...")
-                await asyncio.sleep(3)
-                continue
-
+            was_connected = False
+            semaphore.acquire()
             try:
+                logger(f"Viewer {index}: Connection slot acquired. Connecting...")
+                token, proxy_url = get_token(logger, proxies_list)
+                if not token:
+                    raise ConnectionError("Failed to get token")
+
                 async with AsyncSession(proxy=proxy_url, timeout=20) as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
                     ws = await s.ws_connect(ws_url, timeout=15)
+                    
+                    # --- Connected ---
+                    semaphore.release() # Release slot for the next thread
+                    logger(f"Viewer {index}: Connection slot released.")
+                    was_connected = True
+
                     connected_viewers.add(index)
                     logger(f"Viewer {index} connected.")
                     logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers, "is_running": True})
@@ -133,19 +140,25 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
 
             except Exception as e:
                 logger(f"Viewer {index} error: {e}. Retrying...")
-                await asyncio.sleep(random.randint(4, 8))
+                if not was_connected:
+                    semaphore.release()
+                    logger(f"Viewer {index}: Slot released after error.")
+
             finally:
                 connected_viewers.discard(index)
-                if not stop_event.is_set():
+                if was_connected and not stop_event.is_set():
                      logger(f"Viewer {index} disconnected.")
                 logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers, "is_running": not stop_event.is_set()})
+
+            if not stop_event.is_set():
+                await asyncio.sleep(random.randint(4, 8))
 
     try:
         asyncio.run(connection_handler())
     except Exception as e:
         logger(f"Critical error in thread {index}: {e}\n{traceback.format_exc()}")
 
-def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, ramp_up_time):
+def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
     """The main function to run the bot, adapted for the website."""
     logger = lambda msg: bot_logger(status_updater, msg)
     
@@ -167,26 +180,10 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         threads = []
         thread_counter = 0
 
-        # --- Ramp-up Calculation ---
-        # We'll divide the ramp-up into a fixed number of batches for smooth delivery.
-        NUM_BATCHES = 20 
-        
-        if ramp_up_time > 0 and viewers > 0:
-            # Calculate batch size and delay, ensuring batch_size is at least 1.
-            batch_size = max(1, viewers // NUM_BATCHES)
-            # Calculate delay, but handle case where ramp_up_time is small
-            try:
-                # Calculate the number of batches that will actually run
-                num_actual_batches = (viewers + batch_size - 1) // batch_size
-                delay_between_batches = ramp_up_time / num_actual_batches if num_actual_batches > 1 else 0
-            except ZeroDivisionError:
-                delay_between_batches = 0
-        else:
-            # If ramp-up is 0, send all at once.
-            batch_size = viewers if viewers > 0 else 1
-            delay_between_batches = 0
-
-        logger(f"Ramp-up: {batch_size} viewers per batch with a {delay_between_batches:.2f}s delay.")
+        # Semaphore to limit concurrent connection attempts to prevent resource spikes
+        MAX_CONCURRENT_CONNECTIONS = 50 
+        connection_semaphore = threading.Semaphore(MAX_CONCURRENT_CONNECTIONS)
+        logger(f"Bot configured to allow {MAX_CONCURRENT_CONNECTIONS} concurrent connections.")
 
         # --- Main monitoring and management loop ---
         duration_seconds = duration_minutes * 60
@@ -196,25 +193,17 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             # Clean up dead threads from the list
             threads = [t for t in threads if t.is_alive()]
 
-            # Calculate how many new threads are needed for the next batch
-            num_to_spawn = viewers - len(threads)
+            # If we need more viewers, spawn one and loop again.
+            # This creates threads quickly but yields control frequently.
+            if len(threads) < viewers:
+                thread_counter += 1
+                t = threading.Thread(
+                    target=start_connection_thread,
+                    args=(logger, channel_id, thread_counter, stop_event, connected_viewers, proxies, viewers, connection_semaphore)
+                )
+                threads.append(t)
+                t.start()
 
-            if num_to_spawn > 0:
-                # Determine the size of this specific batch
-                current_batch_size = min(batch_size, num_to_spawn)
-                logger(f"Spawning a batch of {current_batch_size} viewers...")
-
-                for _ in range(current_batch_size):
-                    if stop_event.is_set():
-                        break
-                    thread_counter += 1
-                    t = threading.Thread(
-                        target=start_connection_thread,
-                        args=(logger, channel_id, thread_counter, stop_event, connected_viewers, proxies, viewers)
-                    )
-                    threads.append(t)
-                    t.start()
-            
             status_update = {
                 "current_viewers": len(connected_viewers),
                 "target_viewers": viewers,
@@ -222,13 +211,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             }
             logger(status_update)
             
-            # Determine sleep time. Use the calculated delay during ramp-up, otherwise a standard poll interval.
-            if num_to_spawn > batch_size: # Still in the ramp-up phase
-                 sleep_duration = delay_between_batches if delay_between_batches > 0 else 1
-            else: # Ramp-up complete or not applicable
-                sleep_duration = 5 # Standard polling interval
-
-            time.sleep(sleep_duration)
+            # Sleep for a short interval. During ramp-up, this loop will be very active.
+            # Once all threads are spawned, it becomes a less frequent check.
+            time.sleep(0.1)
 
     except Exception as e:
         detailed_error = traceback.format_exc()
