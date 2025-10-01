@@ -191,9 +191,9 @@ document.addEventListener('DOMContentLoaded', () => {
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
-        // Hide stop button if bot not running
+        // Hide stop button if bot not running or not in running state
         if (stopBotButton) {
-            stopBotButton.style.display = status.is_running ? 'flex' : 'none';
+            stopBotButton.style.display = (botState === 'running' || status.is_running) ? 'flex' : 'none';
         }
 
         // Ensure menu items are always enabled
@@ -227,10 +227,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         startPolling();
                     }
                 } else { // Bot is not running
-                    if (botState === 'running' || botState === 'stopping') {
+                    if (botState === 'stopping') {
                         botState = 'ended';
+                        stopPolling();
+                    } else if (botState === 'running') {
+                        // Bot became not running while in running state
+                        showNotification('Bot Status Warning', 'Bot status became inactive. Check logs for details.');
+                        // Keep polling and state to allow recovery or manual stop
+                    } else {
+                        botState = 'ended';
+                        stopPolling();
                     }
-                    stopPolling();
                 }
             } else {
                 // Don't change state or stop polling on server errors to prevent resetting running bots
