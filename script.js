@@ -135,8 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 showLoginState();
             }
         }
-        // Sync with server state on load
-        await pollStatus();
     }
 
     async function fetchUserData(token) {
