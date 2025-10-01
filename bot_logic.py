@@ -64,15 +64,15 @@ async def load_proxies_async(logger):
 
 async def get_channel_id(session, channel_name, logger):
     try:
-        async with session.get(f"https://kick.com/api/v2/channels/{channel_name}") as response:
-            response.raise_for_status()
-            data = await response.json()
-            if "id" in data:
-                logger(f"Successfully found channel ID for {channel_name}.")
-                return data["id"]
-            else:
-                logger(f"Could not find channel ID in response for {channel_name}.")
-                return None
+        response = await session.get(f"https://kick.com/api/v2/channels/{channel_name}")
+        response.raise_for_status()
+        data = await response.json()
+        if "id" in data:
+            logger(f"Successfully found channel ID for {channel_name}.")
+            return data["id"]
+        else:
+            logger(f"Could not find channel ID in response for {channel_name}.")
+            return None
     except Exception as e:
         logger(f"Failed to get channel ID for {channel_name}: {e}")
         return None
@@ -87,10 +87,10 @@ async def send_view(channel_id, proxy, stop_event, logger, connected_viewers_cou
             await s.get("https://kick.com")
             s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
             
-            async with s.get('https://websockets.kick.com/viewer/v1/token') as r:
-                r.raise_for_status()
-                token_data = await r.json()
-                token = token_data["data"]["token"]
+            r = await s.get('https://websockets.kick.com/viewer/v1/token')
+            r.raise_for_status()
+            token_data = await r.json()
+            token = token_data["data"]["token"]
 
             # Step 2: Connect to WebSocket
             ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
