@@ -22,6 +22,7 @@ class StartBotPayload(BaseModel):
     views: int
     duration: int
     viewer_speed: float
+    batch_size: int
 
 class ProxiesSaveRequest(BaseModel):
     proxies: str
@@ -168,7 +169,7 @@ async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_u
 
         process = multiprocessing.Process(
             target=run_viewbot_logic, 
-            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration, payload.viewer_speed)
+            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration, payload.viewer_speed, payload.batch_size)
         )
         process.start()
 
