@@ -129,8 +129,10 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                     ws = await s.ws_connect(ws_url, proxy=proxy_url)
                     
                     # --- Viewer Connected ---
-                    logger(f"Viewer {index} connected successfully")
                     connected_viewers.add(index)
+                    logger(f"Viewer {index} connected successfully")
+                    # Update status immediately
+                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
                     
                     counter = 0
                     while not stop_event.is_set():
@@ -145,6 +147,8 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
             finally:
                 # --- Viewer Disconnected ---
                 connected_viewers.discard(index)
+                # Update status immediately
+                logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
 
             # Wait before retrying connection if the bot is still running
             if not stop_event.is_set():
@@ -197,21 +201,27 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             time.sleep(5)  # Delay between batches
 
         # --- Monitoring Loop ---
-        # This part is an adaptation for the web UI. It checks the timer and stop request,
-        # which is not part of the original command-line script.
+        # This part is an adaptation for the web UI. It checks the stop request,
+        # running indefinitely until stopped (no timer like original script).
         start_time = time.time()
         duration_seconds = duration_minutes * 60 if duration_minutes > 0 else float('inf')
         end_time = start_time + duration_seconds
 
-        while time.time() < end_time and not stop_event.is_set():
-            # Update the UI with the latest status
-            status_update = {
-                "current_viewers": len(connected_viewers),
-                "target_viewers": viewers,
-                "is_running": True
-            }
-            logger(status_update)
-            time.sleep(15)  # Less frequent updates to reduce load
+        while not stop_event.is_set():
+            try:
+                # Update the UI with the latest status
+                status_update = {
+                    "current_viewers": len(connected_viewers),
+                    "target_viewers": viewers,
+                    "is_running": True
+                }
+                logger(status_update)
+            except Exception as e:
+                logger(f"Error updating status: {e}")
+            try:
+                time.sleep(15)  # Less frequent updates to reduce load
+            except Exception:
+                break
 
     except Exception as e:
         detailed_error = traceback.format_exc()
