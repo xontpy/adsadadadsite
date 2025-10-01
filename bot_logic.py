@@ -79,91 +79,12 @@ def get_channel_id(logger, channel_name, proxies_list):
     logger("Failed to get channel ID after multiple attempts.")
     return None
 
-def get_token(logger, proxies_list):
-    """Gets a viewer token using a synchronous request."""
-    max_attempts = 5
-    for _ in range(max_attempts):
-        proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
-        if not proxy_dict:
-            continue
-        try:
-            with requests.Session(impersonate="chrome120", proxies=proxy_dict, timeout=15) as s:
-                s.get("https://kick.com")
-                s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
-                r = s.get('https://websockets.kick.com/viewer/v1/token')
-                if r.status_code == 200:
-                    token = r.json()["data"]["token"]
-                    return token, proxy_url
-                else:
-                    logger(f"Token (Status: {r.status_code}), retrying...")
-        except Exception as e:
-            logger(f"Token (Error: {e}), retrying...")
-        time.sleep(1)
-    return None, None
-
-def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers, proxies_list, total_viewers, semaphore):
-    """The main logic for a single viewer thread, with semaphore control."""
-    
-    async def connection_handler():
-        while not stop_event.is_set():
-            was_connected = False
-            semaphore.acquire()
-            try:
-                logger(f"Viewer {index}: Connection slot acquired. Connecting...")
-                token, proxy_url = get_token(logger, proxies_list)
-                if not token:
-                    raise ConnectionError("Failed to get token")
-
-                async with AsyncSession(proxy=proxy_url, timeout=20) as s:
-                    ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
-                    ws = await s.ws_connect(ws_url, timeout=15)
-                    
-                    # --- Connected ---
-                    semaphore.release() # Release slot for the next thread
-                    logger(f"Viewer {index}: Connection slot released.")
-                    was_connected = True
-
-                    connected_viewers.add(index)
-                    logger(f"Viewer {index} connected.")
-                    logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers, "is_running": True})
-                    
-                    counter = 0
-                    while not stop_event.is_set():
-                        counter += 1
-                        if counter % 2 == 0:
-                            await ws.send_json({"type": "ping"})
-                        else:
-                            await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
-                        
-                        delay = 11 + random.randint(2, 7)
-                        await asyncio.sleep(delay)
-
-            except Exception as e:
-                logger(f"Viewer {index} error: {e}. Retrying...")
-                if not was_connected:
-                    semaphore.release()
-                    logger(f"Viewer {index}: Slot released after error.")
-
-            finally:
-                connected_viewers.discard(index)
-                if was_connected and not stop_event.is_set():
-                     logger(f"Viewer {index} disconnected.")
-                logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers, "is_running": not stop_event.is_set()})
-
-            if not stop_event.is_set():
-                await asyncio.sleep(random.randint(4, 8))
-
-    try:
-        asyncio.run(connection_handler())
-    except Exception as e:
-        logger(f"Critical error in thread {index}: {e}\n{traceback.format_exc()}")
-
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
-    """The main function to run the bot, adapted for the website."""
+    """The main function to run the bot, rewritten for asyncio."""
     logger = lambda msg: bot_logger(status_updater, msg)
-    
+
     try:
-        logger("Starting bot logic...")
+        logger("Initializing bot...")
         
         proxies = load_proxies(logger)
         if not proxies:
@@ -175,70 +96,98 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
             logger("Halting: Failed to get channel ID.")
             return
 
-        start_time = time.time()
-        connected_viewers = set()
-        threads = []
-        thread_counter = 0
-
-        # Semaphore to limit concurrent connection attempts to prevent resource spikes
-        MAX_CONCURRENT_CONNECTIONS = 50 
-        connection_semaphore = threading.Semaphore(MAX_CONCURRENT_CONNECTIONS)
-        logger(f"Bot configured to allow {MAX_CONCURRENT_CONNECTIONS} concurrent connections.")
-
-        # --- Main monitoring and management loop ---
-        duration_seconds = duration_minutes * 60
-        end_time = start_time + duration_seconds if duration_seconds > 0 else float('inf')
-
-        while time.time() < end_time and not stop_event.is_set():
-            # Clean up dead threads from the list to allow for respawning
-            threads = [t for t in threads if t.is_alive()]
-
-            # --- Gradual Thread Spawning ---
-            # Instead of creating all threads at once (a "thread bomb"), we spawn
-            # them gradually to prevent a massive resource spike that crashes the process.
-            if len(threads) < viewers:
-                if stop_event.is_set():
-                    break
-                thread_counter += 1
-                t = threading.Thread(
-                    target=start_connection_thread,
-                    args=(logger, channel_id, thread_counter, stop_event, connected_viewers, proxies, viewers, connection_semaphore)
-                )
-                threads.append(t)
-                t.start()
-
-            status_update = {
-                "current_viewers": len(connected_viewers),
-                "target_viewers": viewers,
-                "is_running": not stop_event.is_set()
-            }
-            logger(status_update)
-            
-            # This sleep controls the rate of thread creation.
-            # A smaller value means a faster ramp-up. This will spawn
-            # up to 20 threads per second, a safe and stable rate.
-            time.sleep(0.05)
+        # --- Main Async Logic ---
+        asyncio.run(main_async_runner(logger, stop_event, channel_id, viewers, duration_minutes, proxies))
 
     except Exception as e:
         detailed_error = traceback.format_exc()
-        logger(f"An unexpected error occurred in the bot's core loop: {e}\nDetails:\n{detailed_error}")
+        logger(f"A critical error occurred: {e}\nDetails:\n{detailed_error}")
     finally:
-        # Determine shutdown reason for clearer logging
-        shutdown_reason = "an unknown error occurred"
-        if stop_event.is_set():
-            # This means the stop was initiated from the server/UI
-            shutdown_reason = "stop request received"
-        elif duration_seconds > 0 and time.time() >= end_time:
-            # This means the bot ran for its full duration
-            shutdown_reason = "timer finished"
-
-        logger(f"Shutting down ({shutdown_reason}). Stopping viewers...")
-        
-        if not stop_event.is_set():
-            stop_event.set()
-        
-        # Wait for all threads to finish
-        for t in threads:
-            t.join(timeout=5)
-            
         logger("Bot process has stopped.")
+
+
+async def main_async_runner(logger, stop_event, channel_id, viewers, duration_minutes, proxies):
+    """Orchestrates the entire async bot operation."""
+    
+    async def get_token_async(proxies_list):
+        """Gets a viewer token asynchronously."""
+        max_attempts = 5
+        for _ in range(max_attempts):
+            proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
+            if not proxy_dict: continue
+            try:
+                async with AsyncSession(impersonate="chrome120", proxies=proxy_dict, timeout=15) as s:
+                    await s.get("https://kick.com")
+                    s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+                    r = await s.get('https://websockets.kick.com/viewer/v1/token')
+                    if r.status_code == 200:
+                        return r.json()["data"]["token"], proxy_url
+                    logger(f"Token (Status: {r.status_code}), retrying...")
+            except Exception as e:
+                logger(f"Token (Error: {e}), retrying...")
+            await asyncio.sleep(1)
+        return None, None
+
+    async def connection_handler(index, connected_viewers_set, sem):
+        """Handles a single viewer connection asynchronously."""
+        while not stop_event.is_set():
+            was_connected = False
+            await sem.acquire()
+            try:
+                token, proxy_url = await get_token_async(proxies)
+                if not token: raise ConnectionError("Failed to get token")
+
+                async with AsyncSession(proxy=proxy_url, timeout=20) as s:
+                    ws = await s.ws_connect(f"wss://websockets.kick.com/viewer/v1/connect?token={token}", timeout=15)
+                    
+                    sem.release()
+                    was_connected = True
+                    connected_viewers_set.add(index)
+                    logger({"current_viewers": len(connected_viewers_set)})
+
+                    counter = 0
+                    while not stop_event.is_set():
+                        counter += 1
+                        payload = {"type": "ping"} if counter % 2 == 0 else {"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}}
+                        await ws.send_json(payload)
+                        await asyncio.sleep(11 + random.randint(2, 7))
+
+            except (asyncio.CancelledError, ConnectionResetError):
+                break
+            except Exception:
+                pass
+            finally:
+                if sem.locked(): sem.release()
+                connected_viewers_set.discard(index)
+                if was_connected and not stop_event.is_set():
+                    logger({"current_viewers": len(connected_viewers_set)})
+            
+            if not stop_event.is_set():
+                await asyncio.sleep(random.randint(4, 8))
+
+    # --- Orchestration ---
+    MAX_CONCURRENT_CONNECTIONS = 200
+    connection_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CONNECTIONS)
+    logger(f"Bot configured for {viewers} viewers with {MAX_CONCURRENT_CONNECTIONS} concurrent connections.")
+
+    connected_viewers = set()
+    tasks = [asyncio.create_task(connection_handler(i, connected_viewers, connection_semaphore)) for i in range(viewers)]
+    
+    start_time = time.time()
+    duration_seconds = duration_minutes * 60 if duration_minutes > 0 else float('inf')
+    
+    try:
+        while time.time() - start_time < duration_seconds and not stop_event.is_set():
+            logger({
+                "current_viewers": len(connected_viewers),
+                "target_viewers": viewers,
+                "is_running": True
+            })
+            await asyncio.sleep(5)
+    finally:
+        shutdown_reason = "stop request received" if stop_event.is_set() else "timer finished"
+        logger(f"Shutting down ({shutdown_reason}). Stopping viewers...")
+        stop_event.set()
+        for task in tasks: task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        logger({"is_running": False, "current_viewers": 0})
