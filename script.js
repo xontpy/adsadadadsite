@@ -204,8 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (error) {
             console.error('Polling error:', error);
-            if (botState !== 'idle') botState = 'ended';
-            stopPolling();
+            // Don't change state or stop polling on poll errors, to prevent resetting running bots
         } finally {
             showCorrectScreen();
         }
