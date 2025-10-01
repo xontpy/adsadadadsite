@@ -177,33 +177,21 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`${API_BASE_URL}/api/start`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
 
-            const result = await response.json();
             if (response.ok) {
-                isBotRunning = true;
-                timeRemaining = duration * 60;
-                updateStatusDisplay({ is_running: true, status_line: 'Initializing...', target_viewers: views });
-                startDurationTimer();
-                showPage('viewbot');
-                pollStatus();
+                botState = 'running';
+                showScreen('status');
+                logContainer.innerHTML = ''; // Clear logs
+                startPolling();
             } else {
-                throw new Error(result.detail || 'Failed to start bot.');
+                const errorData = await response.json();
+                alert(`Error starting bot: ${errorData.detail}`);
             }
         } catch (error) {
-            alert(`Error starting bot: ${error.message}`);
-            isBotRunning = false;
-            showPage('viewbot');
-        } finally {
-            if(startBtn) {
-                startBtn.innerHTML = '<i class="fas fa-play"></i> Start Viewbot';
-                startBtn.disabled = false;
-            }
+            alert(`Failed to connect to the server: ${error}`);
         }
     }
 
@@ -392,6 +380,113 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const viewsEndedScreen = document.querySelector('.views-ended-status');
+    const finalViewersSpan = document.getElementById('final-viewers-count');
+
+    let statusPollInterval;
+    let botState = 'idle'; // New state machine: idle, running, stopping, stopped
+
+    function showScreen(screenName) {
+        botControlsScreen.style.display = screenName === 'controls' ? 'block' : 'none';
+        statusScreen.style.display = screenName === 'status' ? 'block' : 'none';
+        viewsEndedScreen.style.display = screenName === 'ended' ? 'block' : 'none';
+    }
+
+    function updateStatus(status) {
+        if (!status) return;
+
+        // Update viewer counts
+        activeViewersSpan.textContent = status.current_viewers || 0;
+        targetViewersSpan.textContent = status.target_viewers || 0;
+
+        // Update progress bar
+        const progress = status.target_viewers > 0 ? (status.current_viewers / status.target_viewers) * 100 : 0;
+        progressBar.style.width = `${progress}%`;
+
+        // Update logs
+        if (status.log_line && !logContainer.innerHTML.includes(status.log_line)) {
+            const logEntry = document.createElement('p');
+            logEntry.textContent = status.log_line;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // --- State Machine Logic ---
+        if (botState === 'running' && !status.is_running) {
+            // Bot has finished or been stopped, transition to 'stopping'
+            botState = 'stopping';
+            finalViewersSpan.textContent = status.current_viewers || 0;
+            showScreen('ended');
+            stopPolling();
+        }
+    }
+
+    async function pollStatus() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/status`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const status = await response.json();
+                updateStatus(status);
+            } else if (response.status === 404) {
+                // Bot process not found, means it finished or crashed
+                if (botState === 'running') {
+                    botState = 'stopping';
+                    finalViewersSpan.textContent = activeViewersSpan.textContent; // Use last known value
+                    showScreen('ended');
+                }
+                stopPolling();
+            }
+        } catch (error) {
+            console.error('Polling error:', error);
+            // Stop polling on network errors to prevent spamming
+            stopPolling();
+        }
+    }
+
+    function startPolling() {
+        if (statusPollInterval) return;
+        statusPollInterval = setInterval(pollStatus, 1000);
+    }
+
+    function stopPolling() {
+        clearInterval(statusPollInterval);
+        statusPollInterval = null;
+    }
+
+    async function startBot() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                botState = 'running';
+                showScreen('status');
+                logContainer.innerHTML = ''; // Clear logs
+                startPolling();
+            } else {
+                const errorData = await response.json();
+                alert(`Error starting bot: ${errorData.detail}`);
+            }
+        } catch (error) {
+            alert(`Failed to connect to the server: ${error}`);
+        }
+    }
+
+    async function stopBot() {
+        try {
+            await fetch(`${API_BASE_URL}/api/stop`, { method: 'POST' });
+            // The pollStatus logic will handle the screen transition
+        } catch (error) {
+            alert(`Error stopping bot: ${error}`);
+        }
+    }
+
+    // --- Event Listeners ---
     if (startBtn) {
         startBtn.addEventListener('click', startBot);
     }
@@ -400,7 +495,6 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBotButton.addEventListener('click', stopBot);
     }
 
-    // --- Initial Load ---
-    checkUserSession();
-    showPage('viewbot');
+    // Initial setup
+    showScreen('controls');
 });
