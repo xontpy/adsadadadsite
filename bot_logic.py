@@ -69,7 +69,7 @@ def get_channel_id(logger, channel_name, proxies_list):
         if not proxy_dict:
             continue
         try:
-            with requests.Session(impersonate="firefox110", proxies=proxy_dict, timeout=10) as s:
+            with requests.Session(impersonate="firefox135", proxies=proxy_dict, timeout=10) as s:
                 r = s.get(f"https://kick.com/api/v2/channels/{channel_name}")
                 if r.status_code == 200:
                     logger(f"Successfully found channel ID for {channel_name}.")
@@ -90,7 +90,7 @@ def get_token(logger, proxies_list):
         if not proxy_dict:
             continue
         try:
-            with requests.Session(impersonate="firefox110", proxies=proxy_dict, timeout=15) as s:
+            with requests.Session(impersonate="firefox135", proxies=proxy_dict, timeout=15) as s:
                 s.get("https://kick.com")
                 s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 r = s.get('https://websockets.kick.com/viewer/v1/token')
@@ -116,7 +116,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
                 continue
 
             try:
-                async with AsyncSession(impersonate="firefox110", proxy=proxy_url, timeout=20) as s:
+                async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=20) as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
                     async with s.ws_connect(ws_url, timeout=15) as ws:
                         connected_viewers_counter.add(index)
