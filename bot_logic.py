@@ -82,6 +82,17 @@ def get_channel_id(logger, channel_name=None, proxies_list=None):
         except Exception as e:
             logger(f"Channel ID error: {e}, retrying...")
         time.sleep(1)
+    logger("Failed to get channel ID after multiple retries with proxies. Retrying without proxy...")
+    try:
+        s = requests.Session(impersonate="chrome")
+        r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
+        if r.status_code == 200:
+            channel_id = r.json().get("id")
+            if channel_id:
+                logger(f"Got channel ID without proxy: {channel_id}")
+                return channel_id
+    except Exception as e:
+        logger(f"Failed to get channel ID without proxy: {e}")
     logger("Failed to get channel ID after multiple retries.")
     return None
 
@@ -228,23 +239,27 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         # running indefinitely until stopped (no timer like original script).
 
         while not stop_event.is_set():
-            if duration_minutes > 0 and time.time() >= end_time:
-                stop_event.set()
-                break
             try:
-                # Update the UI with the latest status
-                status_update = {
-                    "current_viewers": len(connected_viewers),
-                    "target_viewers": viewers,
-                    "is_running": True
-                }
-                logger(status_update)
+                if duration_minutes > 0 and time.time() >= end_time:
+                    stop_event.set()
+                    break
+                try:
+                    # Update the UI with the latest status
+                    status_update = {
+                        "current_viewers": len(connected_viewers),
+                        "target_viewers": viewers,
+                        "is_running": True
+                    }
+                    logger(status_update)
+                except Exception as e:
+                    logger(f"Error updating status: {e}")
+                try:
+                    time.sleep(15)  # Less frequent updates to reduce load
+                except Exception:
+                    break
             except Exception as e:
-                logger(f"Error updating status: {e}")
-            try:
-                time.sleep(15)  # Less frequent updates to reduce load
-            except Exception:
-                break
+                logger(f"Unexpected error in monitoring loop: {e}. Continuing...")
+                time.sleep(5)  # Brief pause before retrying
 
     except Exception as e:
         detailed_error = traceback.format_exc()
