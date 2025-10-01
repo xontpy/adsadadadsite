@@ -197,10 +197,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     stopPolling();
                 }
             } else {
-                if (botState === 'running') {
-                    botState = 'ended';
-                }
-                stopPolling();
+                // Don't change state or stop polling on server errors to prevent resetting running bots
+                console.error('Server responded with error:', response.status);
             }
         } catch (error) {
             console.error('Polling error:', error);
