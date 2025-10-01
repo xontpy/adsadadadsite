@@ -129,8 +129,8 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                     ws = await s.ws_connect(ws_url, proxy=proxy_url)
                     
                     # --- Viewer Connected ---
+                    logger(f"Viewer {index} connected successfully")
                     connected_viewers.add(index)
-                    # Removed individual connect logs to reduce spam
                     
                     counter = 0
                     while not stop_event.is_set():
