@@ -145,7 +145,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
     except Exception as e:
         logger(f"Critical error in thread {index}: {e}\n{traceback.format_exc()}")
 
-def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, viewer_speed):
+def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, viewer_speed, batch_size):
     """The main function to run the bot, adapted for the website."""
     logger = lambda msg: bot_logger(status_updater, msg)
     
@@ -182,7 +182,7 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
 
             if num_to_spawn > 0:
                 logger(f"Found {len(threads)} active threads. Spawning {num_to_spawn} new ones...")
-                for _ in range(num_to_spawn):
+                for i in range(num_to_spawn):
                     if stop_event.is_set():
                         break
                     thread_counter += 1
@@ -192,7 +192,15 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                     )
                     threads.append(t)
                     t.start()
-                    time.sleep(viewer_speed) # Use the viewer_speed for delay
+
+                    # After each thread, check if a batch is complete
+                    is_batch_boundary = (i + 1) % batch_size == 0
+                    is_last_spawn = (i + 1) == num_to_spawn
+
+                    if (is_batch_boundary or is_last_spawn):
+                        # A viewer_speed of 0.01 (the minimum) means "as fast as possible"
+                        if viewer_speed > 0.01:
+                            time.sleep(viewer_speed)
 
             status_update = {
                 "current_viewers": len(connected_viewers),
