@@ -1,4 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- Constants ---
+    const API_BASE_URL = ''; // Assuming APIs are on the same host
+
     // --- Element References ---
     const loginButton = document.getElementById('login-button');
     const logoutButton = document.getElementById('logout-button');
@@ -8,120 +11,73 @@ document.addEventListener('DOMContentLoaded', () => {
     const permissionsSpan = document.getElementById('permissions');
     const premiumPlanBanner = document.querySelector('.premium-plan');
 
-    const mainContent = document.querySelector('.main-content');
+    const menuItems = document.querySelectorAll('.menu-item');
     const viewbotPage = document.querySelector('.viewbot-controls');
     const viewbotStatusPage = document.querySelector('.viewbot-status');
     const settingsPage = document.getElementById('settings-page');
-    
-    const startBotButton = document.getElementById('start-bot-button');
+
+    const startBtn = document.getElementById('start-btn');
     const stopBotButton = document.getElementById('stop-bot-button');
     const channelInput = document.getElementById('channel-input');
-    const viewersSlider = document.getElementById('viewers-slider');
-    const viewersCount = document.getElementById('viewers-count');
-    const durationSlider = document.getElementById('duration-slider');
-    const durationCount = document.getElementById('duration-count');
-    const rampUpTimeInput = document.getElementById('ramp-up-time');
+    
+    const viewersSlider = document.getElementById('views-input');
+    const viewersValue = document.getElementById('views-value');
+    const durationSlider = document.getElementById('duration-input');
+    const durationValue = document.getElementById('duration-value');
+    const rampupInput = document.getElementById('rampup-input');
 
     // Status screen elements
     const activeViewersSpan = document.getElementById('active-viewers');
     const timeRemainingSpan = document.getElementById('time-remaining');
+    const statusLine = document.getElementById('status-line');
     const progressBar = document.getElementById('progress-bar');
-    const progressPercentSpan = document.getElementById('progress-percent');
+    const progressPercent = document.getElementById('progress-percent');
 
-    // Settings elements
-    const themeSelect = document.getElementById('theme-select');
-    const notificationsToggle = document.getElementById('notifications-toggle');
-    
-    // Menu items
-    const menuItems = document.querySelectorAll('.menu-item');
-
-    // --- Configuration ---
-    const API_BASE_URL = 'https://kickaviewss.onrender.com'; // Replace with your actual API endpoint
-
-    // --- State ---
+    // --- State Variables ---
     let isBotRunning = false;
+    let wasRunning = false;
+    let timeRemaining = 0;
     let statusInterval;
     let durationInterval;
-    let timeRemaining = 0;
-
-    // --- Event Listeners ---
-    if (viewersSlider && viewersCount) {
-        viewersSlider.addEventListener('input', () => {
-            viewersCount.textContent = viewersSlider.value;
-        });
-    }
-
-    if (durationSlider && durationCount) {
-        durationSlider.addEventListener('input', () => {
-            durationCount.textContent = durationSlider.value;
-        });
-    }
-
-    if (loginButton) {
-        loginButton.addEventListener('click', () => {
-            window.location.href = `${API_BASE_URL}/login`;
-        });
-    }
-
-    if (logoutButton) {
-        logoutButton.addEventListener('click', () => {
-            localStorage.removeItem('accessToken');
-            showLoginState();
-        });
-    }
-
-    if (startBotButton) {
-        startBotButton.addEventListener('click', startBot);
-    }
-    
-    if (stopBotButton) {
-        stopBotButton.addEventListener('click', stopBot);
-    }
-
-    menuItems.forEach(item => {
-        item.addEventListener('click', (e) => {
-            e.preventDefault();
-            const page = item.getAttribute('data-page');
-            showPage(page);
-        });
-    });
-
-    if (themeSelect) {
-        themeSelect.addEventListener('change', (e) => {
-            document.body.className = `${e.target.value}-theme`;
-        });
-    }
 
     // --- Functions ---
-    function showPage(page) {
+
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return null;
+    }
+
+    function showPage(pageId) {
         const pages = [viewbotPage, viewbotStatusPage, settingsPage];
         let pageToShow = null;
 
-        if (page === 'viewbot') {
+        if (pageId === 'viewbot') {
             pageToShow = isBotRunning ? viewbotStatusPage : viewbotPage;
-        } else if (page === 'settings') {
+        } else if (pageId === 'settings') {
             pageToShow = settingsPage;
         }
-        // Add other pages here (e.g., support)
+        // Add other pages here if needed
 
         pages.forEach(p => {
-            if (p !== pageToShow) {
+            if (p && p.style.display !== 'none') {
                 p.style.display = 'none';
-                p.classList.remove('page');
             }
         });
 
         if (pageToShow) {
             pageToShow.style.display = 'block';
-            pageToShow.classList.add('page');
         }
 
-        // Update active menu item
         menuItems.forEach(item => {
-            item.classList.toggle('active', item.getAttribute('data-page') === page);
+            if (item.dataset.page === pageId) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
         });
     }
-
 
     async function checkUserSession() {
         const hash = window.location.hash;
@@ -138,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showLoginState();
             }
         }
-        pollStatus();
+        await pollStatus(true);
     }
 
     async function fetchUserData(token) {
@@ -184,18 +140,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (parseInt(viewersSlider.value) > viewersSlider.max) {
                 viewersSlider.value = viewersSlider.max;
             }
-            if(viewersCount) viewersCount.textContent = viewersSlider.value;
+            if(viewersValue) viewersValue.textContent = viewersSlider.value;
         }
     }
 
     async function startBot() {
         const channel = channelInput.value;
-        const viewers = viewersSlider.value;
-        const duration = durationSlider.value;
-        const rampUpTime = rampUpTimeInput.value;
+        const views = parseInt(viewersSlider.value, 10);
+        const duration = parseInt(durationSlider.value, 10);
+        const rampup = parseInt(rampupInput.value, 10) || 0;
 
         if (!channel) {
-            alert('Please enter a Kick channel name.');
+            alert('Please enter a channel name.');
             return;
         }
 
@@ -205,14 +161,16 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        startBotButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
-        startBotButton.disabled = true;
+        if(startBtn) {
+            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+            startBtn.disabled = true;
+        }
 
         const payload = {
             channel: channel,
-            views: parseInt(viewers),
-            duration: parseInt(duration),
-            ramp_up_minutes: rampUpTime ? parseInt(rampUpTime) : 0
+            views: views,
+            duration: duration,
+            ramp_up_seconds: rampup
         };
 
         try {
@@ -222,40 +180,43 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify(payload),
+                body: JSON.stringify(payload)
             });
 
-            const data = await response.json();
-
+            const result = await response.json();
             if (response.ok) {
                 isBotRunning = true;
-                timeRemaining = parseInt(duration) * 60;
-                updateStatusDisplay({ target_viewers: viewers });
+                timeRemaining = duration * 60;
+                updateStatusDisplay({ is_running: true, status_line: 'Initializing...', target_viewers: views });
                 startDurationTimer();
                 showPage('viewbot');
                 pollStatus();
             } else {
-                throw new Error(data.detail || 'Failed to start bot.');
+                throw new Error(result.detail || 'Failed to start bot.');
             }
         } catch (error) {
             alert(`Error starting bot: ${error.message}`);
             isBotRunning = false;
             showPage('viewbot');
         } finally {
-            startBotButton.innerHTML = '<i class="fas fa-play"></i> Start Viewbot';
-            startBotButton.disabled = false;
+            if(startBtn) {
+                startBtn.innerHTML = '<i class="fas fa-play"></i> Start Viewbot';
+                startBtn.disabled = false;
+            }
         }
     }
 
     async function stopBot() {
-        stopBotButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
-        stopBotButton.disabled = true;
+        if(stopBotButton) {
+            stopBotButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
+            stopBotButton.disabled = true;
+        }
 
         const token = localStorage.getItem('accessToken');
         try {
             const response = await fetch(`${API_BASE_URL}/api/stop`, {
-                method: 'POST',
-                 headers: { 'Authorization': `Bearer ${token}` }
+                 method: 'POST',
+                  headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
             if (response.ok) {
@@ -269,23 +230,18 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             alert(`Error stopping bot: ${error.message}`);
         } finally {
-            stopBotButton.innerHTML = '<i class="fas fa-stop"></i> Stop Viewbot';
-            stopBotButton.disabled = false;
+            if(stopBotButton) {
+                stopBotButton.innerHTML = '<i class="fas fa-stop"></i> Stop Viewbot';
+                stopBotButton.disabled = false;
+            }
         }
     }
 
-    function pollStatus() {
-        if (statusInterval) clearInterval(statusInterval);
-        
-        statusInterval = setInterval(async () => {
-            if (!isBotRunning) {
-                clearInterval(statusInterval);
-                return;
-            }
-
+    async function pollStatus(once = false) {
+        const executePoll = async () => {
             const token = localStorage.getItem('accessToken');
             if (!token) {
-                clearInterval(statusInterval);
+                if (statusInterval) clearInterval(statusInterval);
                 return;
             }
             try {
@@ -298,31 +254,30 @@ document.addEventListener('DOMContentLoaded', () => {
                         showLoginState();
                     }
                     isBotRunning = false;
-                    stopDurationTimer();
-                    showPage('viewbot');
-                    clearInterval(statusInterval);
-                    return;
-                }
-                
-                const status = await response.json();
-                isBotRunning = status.is_running;
-
-                if (isBotRunning) {
-                    updateStatusDisplay(status);
                 } else {
-                    stopDurationTimer();
-                    showPage('viewbot');
-                    clearInterval(statusInterval);
+                    const status = await response.json();
+                    isBotRunning = status.is_running;
+                    updateStatusDisplay(status);
                 }
+
+                if (isBotRunning !== wasRunning) {
+                    showPage('viewbot');
+                }
+                wasRunning = isBotRunning;
 
             } catch (error) {
                 console.error('Polling error:', error.message);
                 isBotRunning = false;
-                stopDurationTimer();
-                showPage('viewbot');
-                clearInterval(statusInterval);
+                if (isBotRunning !== wasRunning) showPage('viewbot');
+                wasRunning = false;
             }
-        }, 2000); // Poll every 2 seconds
+        };
+
+        await executePoll();
+        if (!once) {
+            if (statusInterval) clearInterval(statusInterval);
+            statusInterval = setInterval(executePoll, 2000);
+        }
     }
 
     function startDurationTimer() {
@@ -349,17 +304,83 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function updateStatusDisplay(status) {
-        const targetViewers = status.target_viewers || viewersSlider.value;
-        const currentViewers = status.current_viewers || 0;
-        const progress = status.progress_percent || 0;
+    function updateStatusDisplay(data) {
+        const modal = document.getElementById('views-ended-modal');
+        if (wasRunning && !data.is_running && modal) {
+            modal.style.display = 'flex';
+        }
 
-        if (activeViewersSpan) activeViewersSpan.textContent = `${currentViewers} / ${targetViewers}`;
-        if (progressBar) progressBar.style.width = `${progress}%`;
-        if (progressPercentSpan) progressPercentSpan.textContent = `${Math.round(progress)}%`;
+        if (data.is_running) {
+            const statusText = data.status_line || 'Running...';
+            if(statusLine) statusLine.textContent = statusText;
+            if(activeViewersSpan) activeViewersSpan.textContent = `${data.current_viewers || 0} / ${data.target_viewers || 0}`;
+
+            let progress = 0;
+            if (data.target_viewers > 0) {
+                progress = (data.current_viewers / data.target_viewers) * 100;
+            }
+            
+            if(progressBar) progressBar.style.width = `${progress}%`;
+            if(progressPercent) progressPercent.textContent = `${Math.round(progress)}%`;
+
+        } else {
+            if(statusLine) statusLine.textContent = data.status_line || 'Not running.';
+            if(progressBar) progressBar.style.width = '0%';
+            if(progressPercent) progressPercent.textContent = '0%';
+        }
+    }
+
+    // --- Event Listeners ---
+    menuItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const pageId = item.dataset.page;
+            showPage(pageId);
+        });
+    });
+
+    if (viewersSlider && viewersValue) {
+        viewersSlider.addEventListener('input', () => {
+            viewersValue.textContent = viewersSlider.value;
+        });
+    }
+
+    if (durationSlider && durationValue) {
+        durationSlider.addEventListener('input', () => {
+            durationValue.textContent = `${durationSlider.value} min`;
+        });
+    }
+    
+    const viewsEndedDoneBtn = document.getElementById('views-ended-done-btn');
+    if (viewsEndedDoneBtn) {
+        viewsEndedDoneBtn.addEventListener('click', () => {
+            const modal = document.getElementById('views-ended-modal');
+            if(modal) modal.style.display = 'none';
+        });
+    }
+
+    if (loginButton) {
+        loginButton.addEventListener('click', () => {
+            window.location.href = '/login';
+        });
+    }
+
+    if(logoutButton) {
+        logoutButton.addEventListener('click', () => {
+            localStorage.removeItem('accessToken');
+            window.location.reload();
+        });
+    }
+
+    if (startBtn) {
+        startBtn.addEventListener('click', startBot);
+    }
+
+    if (stopBotButton) {
+        stopBotButton.addEventListener('click', stopBot);
     }
 
     // --- Initial Load ---
     checkUserSession();
-    showPage('viewbot'); // Show viewbot page by default
+    showPage('viewbot');
 });
