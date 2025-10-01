@@ -14,13 +14,15 @@ def bot_logger(status_updater, message):
         if isinstance(message, dict):
             status_updater.put(message)
         else:
-            if "Using proxy" not in str(message):
-                status_updater.put({'log_line': str(message)})
+            # Avoid logging proxy details for security
+            log_message = str(message)
+            if "proxy" not in log_message and "token" not in log_message:
+                status_updater.put({'log_line': log_message})
     except Exception:
         sys.stdout.write(f"\r[UI_LOG_FAIL] {message}")
         sys.stdout.flush()
 
-# --- Adapted Logic from main (2).py ---
+# --- Logic from main (2).py, adapted for Web UI ---
 
 def load_proxies(logger):
     """Loads proxies from 'proxies.txt'."""
@@ -45,18 +47,13 @@ def pick_proxy(logger, proxies_list):
     """Picks a random proxy and formats it."""
     proxy = random.choice(proxies_list)
     try:
-        # Assuming proxy format is ip:port:user:pass
         ip, port, user, pwd = proxy.split(":")
         full_url = f"http://{user}:{pwd}@{ip}:{port}"
         proxy_dict = {"http": full_url, "https": full_url}
         return proxy_dict, full_url
     except ValueError:
-        logger(f"Warning: Bad proxy format: {proxy}. Assuming user:pass@ip:port or ip:port.")
-        # Fallback for other formats
-        if "@" in proxy:
-            return {"http": f"http://{proxy}", "https": f"http://{proxy}"}, f"http://{proxy}"
-        else:
-             return {"http": f"http://{proxy}", "https": f"http://{proxy}"}, f"http://{proxy}"
+        logger(f"Bad proxy format: {proxy}, (use ip:port:user:pass)")
+        return None, None
     except Exception as e:
         logger(f"Proxy error: {proxy}, {e}")
         return None, None
@@ -75,9 +72,9 @@ def get_channel_id(logger, channel_name, proxies_list):
                     logger(f"Successfully found channel ID for {channel_name}.")
                     return r.json().get("id")
                 else:
-                    logger(f"Attempt {i+1}: Failed to get channel ID (Status: {r.status_code}). Retrying...")
+                    logger(f"Channel ID (Status: {r.status_code}), retrying...")
         except Exception as e:
-            logger(f"Attempt {i+1}: Failed to get channel ID (Error: {e}). Retrying...")
+            logger(f"Channel ID (Error: {e}), retrying...")
         time.sleep(1)
     logger("Failed to get channel ID after multiple attempts.")
     return None
@@ -98,13 +95,13 @@ def get_token(logger, proxies_list):
                     token = r.json()["data"]["token"]
                     return token, proxy_url
                 else:
-                    logger(f"Token Error: Status {r.status_code}. Retrying...")
+                    logger(f"Token (Status: {r.status_code}), retrying...")
         except Exception as e:
-            logger(f"Token Error: {e}. Retrying...")
+            logger(f"Token (Error: {e}), retrying...")
         time.sleep(1)
     return None, None
 
-def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers_counter, proxies_list):
+def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers, proxies_list):
     """The main logic for a single viewer thread."""
     
     async def connection_handler():
@@ -116,33 +113,35 @@ def start_connection_thread(logger, channel_id, index, stop_event, connected_vie
                 continue
 
             try:
-                async with AsyncSession(impersonate="firefox135", proxy=proxy_url, timeout=20) as s:
+                async with AsyncSession(proxy=proxy_url, timeout=20) as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
                     async with s.ws_connect(ws_url, timeout=15) as ws:
-                        connected_viewers_counter.add(index)
+                        connected_viewers.add(index)
                         logger(f"Viewer {index} connected.")
                         
-                        # Handshake and Ping loop
+                        counter = 0
                         while not stop_event.is_set():
-                            await ws.send_json({"type": "ping"})
-                            await asyncio.sleep(12)
-                            if stop_event.is_set(): break
-                            await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
-                            await asyncio.sleep(12)
+                            counter += 1
+                            if counter % 2 == 0:
+                                await ws.send_json({"type": "ping"})
+                            else:
+                                await ws.send_json({"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}})
+                            
+                            delay = 11 + random.randint(2, 7)
+                            await asyncio.sleep(delay)
 
             except Exception as e:
-                logger(f"Viewer {index} error: {type(e).__name__}. Retrying...")
-                await asyncio.sleep(random.randint(3, 7))
+                logger(f"Viewer {index} error: {e}. Retrying...")
+                await asyncio.sleep(random.randint(4, 8))
             finally:
-                connected_viewers_counter.discard(index)
+                connected_viewers.discard(index)
                 if not stop_event.is_set():
                      logger(f"Viewer {index} disconnected.")
 
     try:
         asyncio.run(connection_handler())
     except Exception as e:
-        logger(f"Critical error in thread {index}: {e}")
-
+        logger(f"Critical error in thread {index}: {e}\n{traceback.format_exc()}")
 
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes):
     """The main function to run the bot, adapted for the website."""
