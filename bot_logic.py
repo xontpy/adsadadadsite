@@ -72,8 +72,8 @@ def get_channel_id(logger, channel_name, proxies_list):
         if not proxy_dict:
             continue
         try:
-            # Using firefox135 impersonation for better compatibility
-            with requests.Session(impersonate="firefox135", proxies=proxy_dict, timeout=10) as s:
+            # Using chrome120 impersonation for better compatibility
+            with requests.Session(impersonate="chrome120", proxies=proxy_dict, timeout=10) as s:
                 r = s.get(f"https://kick.com/api/v2/channels/{channel_name}")
                 if r.status_code == 200:
                     logger(f"Successfully found channel ID for {channel_name}.")
@@ -94,7 +94,7 @@ def get_token(logger, proxies_list):
         if not proxy_dict:
             continue
         try:
-            with requests.Session(impersonate="firefox135", proxies=proxy_dict, timeout=15) as s:
+            with requests.Session(impersonate="chrome120", proxies=proxy_dict, timeout=15) as s:
                 s.get("https://kick.com")
                 s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 r = s.get('https://websockets.kick.com/viewer/v1/token')
@@ -102,7 +102,7 @@ def get_token(logger, proxies_list):
                     token = r.json()["data"]["token"]
                     return token, proxy_url
                 else:
-                    pass  # logger(f"Token (Status: {r.status_code}), retrying...")
+                    logger(f"Token request failed with status {r.status_code}, retrying...")
         except Exception as e:
             pass  # logger(f"Token (Error: {e}), retrying...")
         time.sleep(1)
@@ -124,9 +124,9 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
 
             try:
                 # Using AsyncSession for the WebSocket connection as in the original script
-                async with AsyncSession(timeout=30) as s:
+                async with AsyncSession() as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
-                    ws = await s.ws_connect(ws_url, proxy=proxy_url, timeout=20)
+                    ws = await s.ws_connect(ws_url, proxy=proxy_url)
                     
                     # --- Viewer Connected ---
                     connected_viewers.add(index)
@@ -141,7 +141,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                         await asyncio.sleep(11 + random.randint(2, 7))
 
             except Exception as e:
-                pass  # Silent retry on error
+                logger(f"Connection failed for viewer {index}: {type(e).__name__}")
             finally:
                 # --- Viewer Disconnected ---
                 connected_viewers.discard(index)
