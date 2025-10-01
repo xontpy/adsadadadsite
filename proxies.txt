@@ -8,3 +8,13 @@
 216.10.27.159:6837:wdwvbrhp:0gge1ikqd9ql
 142.111.67.146:5611:wdwvbrhp:0gge1ikqd9ql
 142.147.128.93:6593:wdwvbrhp:0gge1ikqd9ql
+142.111.48.253:7030:llrdgsig:y2mlbx8iyrp0
+198.23.239.134:6540:llrdgsig:y2mlbx8iyrp0
+45.38.107.97:6014:llrdgsig:y2mlbx8iyrp0
+107.172.163.27:6543:llrdgsig:y2mlbx8iyrp0
+64.137.96.74:6641:llrdgsig:y2mlbx8iyrp0
+154.203.43.247:5536:llrdgsig:y2mlbx8iyrp0
+84.247.60.125:6095:llrdgsig:y2mlbx8iyrp0
+216.10.27.159:6837:llrdgsig:y2mlbx8iyrp0
+142.111.67.146:5611:llrdgsig:y2mlbx8iyrp0
+142.147.128.93:6593:llrdgsig:y2mlbx8iyrp0
