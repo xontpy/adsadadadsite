@@ -187,29 +187,52 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         connected_viewers = set()
         threads = []
 
-        # This loop is the same as in main(2).py, creating a thread for each viewer.
-        for i in range(viewers):
-            if stop_event.is_set():
-                break
-            t = threading.Thread(
-                target=start_connection_thread,
-                args=(logger, channel_id, i + 1, stop_event, proxies, connected_viewers, viewers)
-            )
-            threads.append(t)
-            t.start()
-            # Staggering thread starts slightly to avoid initial resource spike
-            time.sleep(0.05)
-
-        # --- Monitoring Loop ---
-        # This part is an adaptation for the web UI. It checks the timer and stop request,
-        # which is not part of the original command-line script.
+        # --- Main Monitoring and Respawn Loop ---
+        # This is the core self-healing logic. It ensures that the target number of
+        # viewer threads is always running. If a thread dies, it is detected and
+        # replaced on the next cycle.
         start_time = time.time()
         duration_seconds = duration_minutes * 60 if duration_minutes > 0 else float('inf')
         end_time = start_time + duration_seconds
-        
+
         while time.time() < end_time and not stop_event.is_set():
-            # The threads themselves handle status updates, so we just wait.
-            time.sleep(5)
+            # Prune dead threads from the list
+            threads = [t for t in threads if t.is_alive()]
+
+            # Calculate how many new threads are needed
+            needed = viewers - len(threads)
+
+            if needed > 0:
+                logger(f"System state: {len(threads)} threads active, need {viewers}. Starting {needed} new threads.")
+
+            # Start new threads to meet the target
+            for i in range(needed):
+                if stop_event.is_set():
+                    break
+
+                # We use a simple incrementing index for thread names/IDs
+                thread_index = len(threads) + i + 1
+
+                t = threading.Thread(
+                    target=start_connection_thread,
+                    args=(logger, channel_id, thread_index, stop_event, proxies, connected_viewers, viewers)
+                )
+                threads.append(t)
+                t.start()
+                # Stagger thread starts to avoid hitting rate limits or causing a resource spike
+                time.sleep(0.1)
+
+            # Update the UI with the latest status
+            status_update = {
+                "current_viewers": len(connected_viewers),
+                "target_viewers": viewers,
+                "is_running": True
+            }
+            logger(status_update)
+
+            # Wait for 10 seconds before the next check-up cycle.
+            # This is frequent enough to respond to failures but not so frequent as to waste CPU.
+            time.sleep(10)
 
     except Exception as e:
         detailed_error = traceback.format_exc()
