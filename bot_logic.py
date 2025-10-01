@@ -124,9 +124,9 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
 
             try:
                 # Using AsyncSession for the WebSocket connection as in the original script
-                async with AsyncSession(proxy=proxy_url, timeout=20) as s:
+                async with AsyncSession(proxy=proxy_url, timeout=30) as s:
                     ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
-                    ws = await s.ws_connect(ws_url, timeout=15)
+                    ws = await s.ws_connect(ws_url, timeout=20)
                     
                     # --- Viewer Connected ---
                     connected_viewers.add(index)
@@ -137,8 +137,8 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                         counter += 1
                         payload = {"type": "ping"} if counter % 2 == 0 else {"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}}
                         await ws.send_json(payload)
-                        # The original script's delay logic
-                        await asyncio.sleep(11 + random.randint(2, 7))
+                        # Reduced delay to prevent disconnections
+                        await asyncio.sleep(5 + random.randint(1, 3))
 
             except Exception as e:
                 pass  # Silent retry on error
