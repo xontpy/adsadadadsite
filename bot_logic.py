@@ -74,7 +74,7 @@ def get_channel_id(logger, channel_name=None, proxies_list=None):
             continue
         s.proxies = proxy_dict
         try:
-            r = s.get(f"https://kick.com/api/v1/channels/{channel_name}", timeout=5)
+            r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
             if r.status_code == 200:
                 return r.json().get("id")
             else:
@@ -85,7 +85,7 @@ def get_channel_id(logger, channel_name=None, proxies_list=None):
     logger("Failed to get channel ID after multiple retries with proxies. Retrying without proxy...")
     try:
         s = requests.Session(impersonate="chrome")
-        r = s.get(f"https://kick.com/api/v1/channels/{channel_name}", timeout=5)
+        r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
         if r.status_code == 200:
             channel_id = r.json().get("id")
             if channel_id:
@@ -110,7 +110,7 @@ def get_token(logger, proxies_list):
                 client_token_match = re.search(r'"clientToken"\s*:\s*"([^"]+)"', r_kick.text)
                 client_token = client_token_match.group(1) if client_token_match else "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
                 s.headers["X-CLIENT-TOKEN"] = client_token
-                r = s.get('https://websockets.kick.com/viewer/v1/token')
+                r = s.get('https://websockets.kick.com/viewer/v2/token')
                 if r.status_code == 200:
                     token = r.json()["data"]["token"]
                     return token, proxy_url
@@ -125,7 +125,7 @@ def get_token(logger, proxies_list):
             client_token_match = re.search(r'"clientToken"\s*:\s*"([^"]+)"', r_kick.text)
             client_token = client_token_match.group(1) if client_token_match else "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
             s.headers["X-CLIENT-TOKEN"] = client_token
-            r = s.get('https://websockets.kick.com/viewer/v1/token')
+            r = s.get('https://websockets.kick.com/viewer/v2/token')
             if r.status_code == 200:
                 token = r.json()["data"]["token"]
                 proxy_url = None
@@ -157,7 +157,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                     try:
                         # Using AsyncSession for the WebSocket connection as in the original script
                         async with AsyncSession(impersonate="chrome") as s:
-                            ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
+                            ws_url = f"wss://websockets.kick.com/viewer/v2/connect?token={token}"
                             ws = await s.ws_connect(ws_url, proxy=proxy_url)
 
                             # --- Viewer Connected ---
