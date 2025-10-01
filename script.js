@@ -227,8 +227,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 isBotRunning = false;
                 stopDurationTimer();
-                showPage('viewbot');
                 if (statusInterval) clearInterval(statusInterval);
+
+                // Manually update UI to show stopped state and modal
+                wasRunning = true; // Pretend we just came from a running state
+                updateStatusDisplay({ is_running: false });
+                showPage('viewbot');
+                wasRunning = false; // Reset for next run
             } else {
                 throw new Error(data.detail || 'Failed to stop bot.');
             }
