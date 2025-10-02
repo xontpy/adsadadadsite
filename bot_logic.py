@@ -8,29 +8,41 @@ import websockets
 import json
 import os
 from threading import Thread
+from streamlink import Streamlink
 from threading import Semaphore
+from fake_useragent import UserAgent
 import tls_client
 
-# This function is required by the web server to send logs and status updates to the UI.
-def bot_logger(status_updater, message):
-    """A simple logger that sends messages to the web UI."""
-    try:
-        if isinstance(message, dict):
-            status_updater.put(message)
-        else:
-            log_message = str(message)
-            # Avoid logging sensitive details
-            if "proxy" not in log_message and "token" not in log_message:
-                status_updater.put({'log_line': log_message})
-    except Exception:
-        # Fallback to console if UI logging fails
-        sys.stdout.write(f"\r[UI_LOG_FAIL] {message}")
-        sys.stdout.flush()
+ua = UserAgent()
+session = Streamlink()
 
 CLIENT_TOKEN = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+WS_HEADERS = {
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Connection': 'keep-alive',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'User-Agent': ua.random,
+    'sec-ch-ua': '"Chromium";v="137", "Google Chrome";v="137", "Not-A.Brand";v="99"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+}
+session.set_option("http-headers", {
+    "Accept-Language": "en-US,en;q=0.5",
+    "Connection": "keep-alive",
+    "DNT": "1",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": ua.random,
+    "Client-ID": "ewvlchtxgqq88ru9gmfp1gmyt6h2b93",
+    "Referer": "https://www.google.com/"
+})
 
 class ViewerBot:
-    def __init__(self, nb_of_threads, channel_name, status_updater, stop_event):
+    def __init__(self, nb_of_threads, channel_name):
         self.nb_of_threads = int(nb_of_threads)
         self.channel_name = self.extract_channel_name(channel_name)
         self.request_count = 0
@@ -38,7 +50,7 @@ class ViewerBot:
         self.channel_url = "https://kick.com/" + self.channel_name
         self.thread_semaphore = Semaphore(int(nb_of_threads))
         self.active_threads = 0
-        self.should_stop = stop_event.is_set
+        self.should_stop = False
         self.request_per_second = 0
         self.requests_in_current_second = 0
         self.last_request_time = time.time()
@@ -54,7 +66,7 @@ class ViewerBot:
         self.stream_url_lock = threading.Lock()
         self.stream_url_cache_duration = 0.5
         self.channel_id = None
-
+        
         self._stats_lock = threading.Lock()
         self.open_websockets = 0
         self.websocket_attempts = 0
@@ -63,8 +75,6 @@ class ViewerBot:
         self.stats_worker_thread = None
         self.pings_sent = 0
         self.heartbeats_sent = 0
-        self.status_updater = status_updater
-        self.logger = lambda msg: bot_logger(status_updater, msg)
 
     def get_channel_id(self):
         try:
@@ -85,7 +95,7 @@ class ViewerBot:
                 'sec-ch-ua-mobile': '?0',
                 'sec-ch-ua-platform': '"Windows"',
             })
-
+            
             try:
                 response = s.get(f'https://kick.com/api/v2/channels/{self.channel_name}')
                 if response.status_code == 200:
@@ -94,7 +104,7 @@ class ViewerBot:
                     return self.channel_id
             except Exception as e:
                 pass
-
+            
             try:
                 response = s.get(f'https://kick.com/api/v1/channels/{self.channel_name}')
                 if response.status_code == 200:
@@ -103,7 +113,7 @@ class ViewerBot:
                     return self.channel_id
             except Exception as e:
                 pass
-
+            
             try:
                 response = s.get(f'https://kick.com/{self.channel_name}')
                 if response.status_code == 200:
@@ -114,7 +124,7 @@ class ViewerBot:
                         r'channelId["\']:\s*(\d+)',
                         r'channel.*?id["\']:\s*(\d+)'
                     ]
-
+                    
                     for pattern in patterns:
                         match = re.search(pattern, response.text, re.IGNORECASE)
                         if match:
@@ -122,12 +132,12 @@ class ViewerBot:
                             return self.channel_id
             except Exception as e:
                 pass
-
-            self.logger(f"All methods failed to get channel ID for: {self.channel_name}")
+            
+            print(f"All methods failed to get channel ID for: {self.channel_name}")
             return None
-
+            
         except Exception as e:
-            self.logger(f"Error getting channel ID: {e}")
+            print(f"Error getting channel ID: {e}")
             return None
 
     def get_websocket_token(self):
@@ -147,12 +157,12 @@ class ViewerBot:
                 'sec-ch-ua-mobile': '?0',
                 'sec-ch-ua-platform': '"Windows"',
             })
-
+            
             try:
                 session_resp = s.get("https://kick.com")
                 s.headers["X-CLIENT-TOKEN"] = CLIENT_TOKEN
                 response = s.get('https://websockets.kick.com/viewer/v1/token')
-
+                
                 if response.status_code == 200:
                     data = response.json()
                     token = data.get("data", {}).get("token")
@@ -160,18 +170,18 @@ class ViewerBot:
                         return token
             except Exception as e:
                 pass
-
+            
             token_endpoints = [
                 'https://websockets.kick.com/viewer/v1/token',
                 'https://kick.com/api/websocket/token',
                 'https://kick.com/api/v1/websocket/token'
             ]
-
+            
             for endpoint in token_endpoints:
                 try:
                     s.headers["X-CLIENT-TOKEN"] = CLIENT_TOKEN
                     response = s.get(endpoint, timeout=10)
-
+                    
                     if response.status_code == 200:
                         data = response.json()
                         token = data.get("data", {}).get("token") or data.get("token")
@@ -179,12 +189,12 @@ class ViewerBot:
                             return token
                 except Exception as e:
                     continue
-
-            self.logger("Failed to get WebSocket token from all endpoints")
+            
+            print("Failed to get WebSocket token from all endpoints")
             return None
-
+            
         except Exception as e:
-            self.logger(f"Error getting WebSocket token: {e}")
+            print(f"Error getting WebSocket token: {e}")
             return None
 
     def extract_channel_name(self, input_str):
@@ -194,13 +204,80 @@ class ViewerBot:
             return channel.lower()
         return input_str.lower()
 
-    def stop(self):
-        self.should_stop = lambda: True
+    def _stats_worker(self):
+        print()
+        print()
+        os.system('cls' if os.name == 'nt' else 'clear')
+        while not self.should_stop:
+            try:
+                with self._stats_lock:
+                    if self.start_time:
+                        elapsed = datetime.datetime.now() - self.start_time
+                        duration = f"{int(elapsed.total_seconds())}s"
+                    else:
+                        duration = "0s"
+                    
+                    open_ws = self.open_websockets
+                    attempts = self.websocket_attempts
+                    is_live = self.live_streamer
+                    pings = self.pings_sent
+                    heartbeats = self.heartbeats_sent
+                
 
+                print("\033[2A", end="")
+                print(f"\033[2K\r[x] Open Websockets: \033[32m{open_ws}\033[0m | Websocket Attempts: \033[32m{attempts}\033[0m")
+                print(f"\033[2K\r[x] Pings Sent: \033[32m{pings}\033[0m | Heartbeats Sent: \033[32m{heartbeats}\033[0m | Duration: \033[32m{duration}\033[0m")
+                sys.stdout.flush()
+                
+                time.sleep(1)
+            except Exception as e:
+                time.sleep(1)
+
+    def update_status(self, state, message, proxy_count=None, proxy_loading_progress=None, startup_progress=None):
+        self.status.update({
+            'state': state,
+            'message': message,
+            **(({'proxy_count': proxy_count} if proxy_count is not None else {})),
+            **(({'proxy_loading_progress': proxy_loading_progress} if proxy_loading_progress is not None else {})),
+            **(({'startup_progress': startup_progress} if startup_progress is not None else {}))
+        })
+
+    def get_url(self):
+        current_time = time.time()
+        
+        with self.stream_url_lock:
+            if (self.stream_url_cache and 
+                current_time - self.stream_url_last_updated < self.stream_url_cache_duration):
+                return self.stream_url_cache
+            url = ""
+            try:
+                streams = session.streams(self.channel_url)
+                if streams:
+                    priorities = ['audio_only', '160p', '360p', '480p', '720p', '1080p', 'best', 'worst']
+                    
+                    for quality in priorities:
+                        if quality in streams:
+                            url = streams[quality].url
+                            break
+                    
+                    if not url and streams:
+                        quality = next(iter(streams))
+                        url = streams[quality].url
+                    
+                    self.stream_url_cache = url
+                    self.stream_url_last_updated = current_time
+            except Exception as e:
+                pass
+            
+            return url
+
+    def stop(self):
+        self.should_stop = True
+        
         for thread in self.processes:
             if thread.is_alive():
                 thread.join(timeout=1)
-
+        
         self.processes.clear()
         self.active_threads = 0
 
@@ -215,7 +292,7 @@ class ViewerBot:
             token = self.get_websocket_token()
             if not token:
                 return
-
+            
             if not self.channel_id:
                 self.channel_id = self.get_channel_id()
                 if not self.channel_id:
@@ -232,7 +309,7 @@ class ViewerBot:
                     loop.close()
                 except Exception:
                     pass
-
+                    
         except Exception as e:
             pass
         finally:
@@ -243,14 +320,12 @@ class ViewerBot:
         connection_opened = False
         try:
             ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
-
+            
             async with websockets.connect(ws_url) as websocket:
                 with self._stats_lock:
                     self.open_websockets += 1
                 connection_opened = True
-
-                self.logger({"current_viewers": self.open_websockets, "target_viewers": self.nb_of_threads})
-
+                
                 handshake_msg = {
                     "type": "channel_handshake",
                     "data": {
@@ -260,20 +335,20 @@ class ViewerBot:
                 await websocket.send(json.dumps(handshake_msg))
                 with self._stats_lock:
                     self.heartbeats_sent += 1
-
+                
                 ping_count = 0
-                while not self.should_stop() and ping_count < 10:
+                while not self.should_stop and ping_count < 10:
                     ping_count += 1
-
+                    
                     ping_msg = {"type": "ping"}
                     await websocket.send(json.dumps(ping_msg))
                     with self._stats_lock:
                         self.pings_sent += 1
                     self.request_count += 1
-
+                    
                     sleep_time = 12 + random.randint(1, 5)
                     await asyncio.sleep(sleep_time)
-
+                
         except websockets.exceptions.ConnectionClosed:
             pass
         except Exception as e:
@@ -284,43 +359,65 @@ class ViewerBot:
                     if self.open_websockets > 0:
                         self.open_websockets -= 1
 
-# This is the main entry point called by the web server.
-def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, rapid=False):
-    logger = lambda msg: bot_logger(status_updater, msg)
-
-    if not channel or not channel.strip():
-        logger("Channel name is required.")
-        return
-
-    bot = ViewerBot(viewers, channel, status_updater, stop_event)
-    bot.start_time = datetime.datetime.now()
-
-    bot.channel_id = bot.get_channel_id()
-    bot.processes = []
-    bot.live_streamer = True
-
-    try:
+    def main(self):
+        start = datetime.datetime.now()
+        self.start_time = start
+        
+        self.channel_id = self.get_channel_id()
+        self.processes = []
+        self.live_streamer = True
+        
+        self.stats_worker_thread = Thread(target=self._stats_worker, daemon=True)
+        self.stats_worker_thread.start()
+        
         while True:
-            for i in range(0, int(bot.nb_of_threads)):
-                acquired = bot.thread_semaphore.acquire()
+            for i in range(0, int(self.nb_of_threads)):
+                acquired = self.thread_semaphore.acquire()
                 if acquired:
-                    threaded = Thread(target=bot.open_url)
-                    bot.processes.append(threaded)
+                    threaded = Thread(target=self.open_url)
+                    self.processes.append(threaded)
                     threaded.daemon = True
                     threaded.start()
-
+                    
                     time.sleep(0.35)
 
-            if stop_event.is_set():
-                for _ in range(bot.nb_of_threads):
+            if self.should_stop:
+                for _ in range(self.nb_of_threads):
                     try:
-                        bot.thread_semaphore.release()
+                        self.thread_semaphore.release()
                     except ValueError:
                         pass
                 break
 
-        for t in bot.processes:
+        for t in self.processes:
             t.join()
 
+
+if __name__ == "__main__":
+    try:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        channel = input("Enter channel name or URL: ").strip()
+        if not channel:
+            print("Channel name is needed.")
+            sys.exit(1)
+            
+        while True:
+            try:
+                threads = int(input("Enter number of viewers: ").strip())
+                if threads > 0:
+                    break
+                else:
+                    print("Number of threads must be bigger than 0")
+            except ValueError:
+                print("Please enter a valid number")
+        
+
+        bot = ViewerBot(
+            nb_of_threads=threads,
+            channel_name=channel
+        )
+        bot.main()
     except KeyboardInterrupt:
-        bot.stop()
+        if 'bot' in locals():
+            bot.stop()
+        sys.exit(0)
