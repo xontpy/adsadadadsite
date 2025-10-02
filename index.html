@@ -61,32 +61,55 @@
                     </div>
                 </div>
             </header>
-            <section class="viewbot-controls">
-                <div class="control-group">
-                    <label for="channel-input">Kick Username</label>
-                    <input type="text" id="channel-input" placeholder="e.g., XQC">
-                </div>
-                <div class="slider-group">
-                    <div class="slider-container">
-                        <label for="views-input"><i class="fas fa-users"></i> Viewers <span id="views-value" class="slider-value">100</span></label>
-                        <input type="range" id="views-input" min="1" max="1000" value="100">
+            <section id="kick-viewbot-page" class="page">
+                <div class="viewbot-controls">
+                    <div class="control-group">
+                        <label for="channel-input">Kick Username</label>
+                        <input type="text" id="channel-input" placeholder="e.g., XQC">
                     </div>
-                    <div class="slider-container">
-                        <label for="duration-input"><i class="fas fa-clock"></i> Duration <span id="duration-value" class="slider-value">60 min</span></label>
-                        <input type="range" id="duration-input" min="1" max="300" value="60">
+                    <div class="slider-group">
+                        <div class="slider-container">
+                            <label for="views-input"><i class="fas fa-users"></i> Viewers <span id="views-value" class="slider-value">100</span></label>
+                            <input type="range" id="views-input" min="1" max="1000" value="100">
+                        </div>
+                        <div class="slider-container">
+                            <label for="duration-input"><i class="fas fa-clock"></i> Duration <span id="duration-value" class="slider-value">60 min</span></label>
+                            <input type="range" id="duration-input" min="1" max="300" value="60">
+                        </div>
                     </div>
+                    <div class="control-group">
+                        <label>Rapid Mode</label>
+                        <label class="switch">
+                            <input type="checkbox" id="rapid-toggle">
+                            <span class="slider round"></span>
+                        </label>
+                        <small>When enabled, sends viewers faster (every 0.1s) but may be less stable.</small>
+                    </div>
+                    <button id="start-btn" class="start-button">
+                        <i class="fas fa-play"></i> Start Viewbot
+                    </button>
                 </div>
-                <div class="control-group">
-                    <label>Rapid Mode</label>
-                    <label class="switch">
-                        <input type="checkbox" id="rapid-toggle">
-                        <span class="slider round"></span>
-                    </label>
-                    <small>When enabled, sends viewers faster (every 0.1s) but may be less stable.</small>
+            </section>
+            <section id="twitch-viewbot-page" class="page" style="display: none;">
+                <div class="viewbot-controls">
+                    <div class="control-group">
+                        <label for="twitch-channel-input">Twitch Username</label>
+                        <input type="text" id="twitch-channel-input" placeholder="e.g., xQc">
+                    </div>
+                    <div class="slider-group">
+                        <div class="slider-container">
+                            <label for="twitch-views-input"><i class="fas fa-users"></i> Viewers <span id="twitch-views-value" class="slider-value">100</span></label>
+                            <input type="range" id="twitch-views-input" min="1" max="1000" value="100">
+                        </div>
+                        <div class="slider-container">
+                            <label for="twitch-duration-input"><i class="fas fa-clock"></i> Duration <span id="twitch-duration-value" class="slider-value">60 min</span></label>
+                            <input type="range" id="twitch-duration-input" min="1" max="300" value="60">
+                        </div>
+                    </div>
+                    <button id="twitch-start-btn" class="start-button">
+                        <i class="fas fa-play"></i> Start Twitch Viewbot
+                    </button>
                 </div>
-                <button id="start-btn" class="start-button">
-                    <i class="fas fa-play"></i> Start Viewbot
-                </button>
             </section>
             <section class="viewbot-status" style="display: none;">
                 <div class="status-grid">
