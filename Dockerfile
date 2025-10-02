@@ -12,8 +12,9 @@ COPY requirements.txt .
 ENV PLAYWRIGHT_BROWSERS_PATH=0
 
 # Install your Python dependencies.
-# We don't need to run 'playwright install' because the browsers are already in the image.
-RUN pip install --no-cache-dir -r requirements.txt
+# We set PLAYWRIGHT_BROWSERS_PATH=0 to explicitly prevent any browser download attempts,
+# as they are already included in the base image.
+RUN PLAYWRIGHT_BROWSERS_PATH=0 pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of your application code into the container
 COPY . .
