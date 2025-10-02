@@ -1,4 +1,5 @@
 fastapi
+pydantic
 python-dotenv
 requests
 curl_cffi
@@ -7,3 +8,6 @@ psutil
 websockets
 tls_client
 fake_useragent
+python-multipart
+aiofiles
+jinja2
