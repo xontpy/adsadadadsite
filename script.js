@@ -131,20 +131,46 @@ document.addEventListener('DOMContentLoaded', () => {
         if (logsPage) logsPage.style.display = 'none';
         if (supportPage) supportPage.style.display = 'none';
 
-        // Show the correct page based on the active menu item and bot state
-        if (botState === 'running' || botState === 'starting' || botState === 'stopping' || botState === 'ended') {
+        const isBotActive = ['running', 'starting', 'stopping'].includes(botState);
+        const header = document.querySelector('.main-header h1');
+
+        // If a bot is running and the user is on a bot page, show the status screen.
+        if (isBotActive && (activePage === 'viewbot' || activePage === 'twitch-viewbot')) {
             if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'block';
-        } else { // idle
-            if (activePage === 'viewbot') {
-                if (kickViewbotPage) kickViewbotPage.style.display = 'block';
-            } else if (activePage === 'twitch-viewbot') {
-                if (twitchViewbotPage) twitchViewbotPage.style.display = 'block';
-            } else if (activePage === 'settings') {
-                if (settingsPage) settingsPage.style.display = 'block';
-            } else if (activePage === 'logs') {
-                if (logsPage) logsPage.style.display = 'block';
-            } else if (activePage === 'support') {
-                if (supportPage) supportPage.style.display = 'block';
+            if (header) header.textContent = 'Viewbot Running';
+        } else {
+            // Otherwise, show the normally selected page and restore its title.
+            const activeMenuItem = document.querySelector(`.menu-item.active`);
+            if (header && activeMenuItem) {
+                if (activePage === 'viewbot') {
+                    header.textContent = 'Kick Viewbot';
+                } else if (activePage === 'twitch-viewbot') {
+                    header.textContent = 'Twitch Viewbot';
+                } else {
+                    header.textContent = activeMenuItem.textContent.trim();
+                }
+            }
+
+            switch (activePage) {
+                case 'viewbot':
+                    if (kickViewbotPage) kickViewbotPage.style.display = 'block';
+                    break;
+                case 'twitch-viewbot':
+                    if (twitchViewbotPage) twitchViewbotPage.style.display = 'block';
+                    break;
+                case 'settings':
+                    if (settingsPage) settingsPage.style.display = 'block';
+                    break;
+                case 'logs':
+                    if (logsPage) logsPage.style.display = 'block';
+                    break;
+                case 'support':
+                    if (supportPage) supportPage.style.display = 'block';
+                    break;
+                default: // Default to kick viewbot page on initial load
+                    if (kickViewbotPage) kickViewbotPage.style.display = 'block';
+                    if (header) header.textContent = 'Kick Viewbot';
+                    break;
             }
         }
     }
@@ -169,6 +195,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 const user = await response.json();
                 showLoggedInState(user);
+                // If user is logged in, do an initial status check
+                // This will restore the status screen if a bot is already running
+                pollStatus();
             } else {
                 localStorage.removeItem('accessToken');
                 showLoginState();
@@ -201,19 +230,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (userAvatar) userAvatar.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`;
 
-        if (viewersSlider) {
+        if (viewersSlider && viewersValue) {
             viewersSlider.max = user.max_views || 100;
             if (parseInt(viewersSlider.value) > viewersSlider.max) {
                 viewersSlider.value = viewersSlider.max;
             }
-            if(viewersValue) viewersValue.textContent = viewersSlider.value;
+            viewersValue.textContent = viewersSlider.value;
         }
-        if (twitchViewersSlider) {
+        if (twitchViewersSlider && twitchViewersValue) {
             twitchViewersSlider.max = user.max_views || 100;
             if (parseInt(twitchViewersSlider.value) > twitchViewersSlider.max) {
                 twitchViewersSlider.value = twitchViewersSlider.max;
             }
-            if(twitchViewersValue) twitchViewersValue.textContent = twitchViewersSlider.value;
+            twitchViewersValue.textContent = twitchViewersSlider.value;
         }
         showCorrectScreen();
     }
@@ -229,9 +258,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if(progressBar) progressBar.style.width = `${progress}%`;
         if(progressPercent) progressPercent.textContent = `${Math.round(progress)}%`;
 
-        if (status.logs && logContainer) {
-            logContainer.innerHTML = status.logs.join('\n');
-            logContainer.scrollTop = logContainer.scrollHeight;
+        if (status.logs) {
+            const logText = status.logs.join('\n');
+            if (logContainer) { // Part of the status screen
+                logContainer.innerHTML = logText;
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+            if (logsPage) { // The dedicated Logs page
+                // Create a preformatted element to preserve line breaks
+                logsPage.innerHTML = `<pre class="logs-full-content">${logText}</pre>`;
+                const logContent = logsPage.querySelector('.logs-full-content');
+                if (logContent) {
+                    logContent.scrollTop = logContent.scrollHeight;
+                }
+            }
         }
 
         // Hide stop button if bot not running or not in running state
@@ -441,17 +481,7 @@ document.addEventListener('DOMContentLoaded', () => {
             menuItems.forEach(i => i.classList.remove('active'));
             item.classList.add('active');
 
-            const header = document.querySelector('.main-header h1');
-            if (header) {
-                if (activePage === 'viewbot') {
-                    header.textContent = 'Kick Viewbot';
-                } else if (activePage === 'twitch-viewbot') {
-                    header.textContent = 'Twitch Viewbot';
-                } else {
-                    header.textContent = item.textContent.trim();
-                }
-            }
-
+            // The header text is now managed by showCorrectScreen to handle the "Viewbot Running" state
             showCorrectScreen();
         });
     });
