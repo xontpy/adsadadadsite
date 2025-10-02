@@ -11,3 +11,4 @@ fake_useragent
 python-multipart
 aiofiles
 jinja2
+streamlink
