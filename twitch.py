@@ -3,16 +3,14 @@ import time
 import random
 import datetime
 import threading
-import asyncio
-import websockets
-import json
 import os
-from threading import Thread
-from threading import Semaphore
+from threading import Thread, Semaphore
 from fake_useragent import UserAgent
-import tls_client
 import requests
-from playwright.async_api import async_playwright
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 ua = UserAgent()
 
@@ -112,9 +110,6 @@ class TwitchViewerBot:
         return input_str.lower()
 
     def _stats_worker(self):
-        print()
-        print()
-        os.system('cls' if os.name == 'nt' else 'clear')
         while not self.should_stop and (not self.stop_event or not self.stop_event.is_set()):
             try:
                 with self._stats_lock:
@@ -128,10 +123,6 @@ class TwitchViewerBot:
                     attempts = self.websocket_attempts
                     messages = self.messages_sent
 
-                print("\033[2A", end="")
-                print(f"\033[2K\r[x] Active Connections: \033[32m{open_ws}\033[0m | Attempts: \033[32m{attempts}\033[0m | Messages: \033[32m{messages}\033[0m | Duration: \033[32m{duration_str}\033[0m")
-                sys.stdout.flush()
-
                 if self.status_updater:
                     self.status_updater.put({
                         "current_viewers": open_ws,
@@ -139,6 +130,13 @@ class TwitchViewerBot:
                         "is_running": True,
                         "log_line": f"Active connections: {open_ws}, Attempts: {attempts}, Messages: {messages}, Duration: {duration_str}"
                     })
+                else:
+                    # Fallback for command-line execution
+                    os.system('cls' if os.name == 'nt' else 'clear')
+                    print("\n\n")
+                    print(f"\033[2K\r[x] Active Connections: \033[32m{open_ws}\033[0m | Attempts: \033[32m{attempts}\033[0m | Messages: \033[32m{messages}\033[0m | Duration: \033[32m{duration_str}\033[0m")
+                    sys.stdout.flush()
+
 
                 time.sleep(1)
             except Exception as e:
@@ -148,9 +146,9 @@ class TwitchViewerBot:
         self.status.update({
             'state': state,
             'message': message,
-            **(({'proxy_count': proxy_count} if proxy_count is not None else {})),
-            **(({'proxy_loading_progress': proxy_loading_progress} if proxy_loading_progress is not None else {})),
-            **(({'startup_progress': startup_progress} if startup_progress is not None else {}))
+            **({} if proxy_count is None else {'proxy_count': proxy_count}),
+            **({} if proxy_loading_progress is None else {'proxy_loading_progress': proxy_loading_progress}),
+            **({} if startup_progress is None else {'startup_progress': startup_progress})
         })
 
     def stop(self):
@@ -169,78 +167,57 @@ class TwitchViewerBot:
             self.websocket_attempts += 1
 
         try:
-            # Twitch IRC connection for chat (simulates viewer activity)
-            # Note: This is a simplified example. Real Twitch bots require more complex implementation
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self._irc_worker())
-            except Exception as e:
-                self.logger(f"IRC connection error: {e}")
-            finally:
-                try:
-                    loop.close()
-                except Exception:
-                    pass
-
+            self._browser_worker()
         except Exception as e:
             self.logger(f"Error in send_twitch_view: {e}")
         finally:
             self.active_threads -= 1
             self.thread_semaphore.release()
 
-    async def _irc_worker(self):
-        # Real Twitch viewer bot using Playwright browser automation
+    def _browser_worker(self):
+        driver = None
         try:
             self.logger("Launching browser viewer...")
 
-            async with async_playwright() as p:
-                browser = await p.firefox.launch(
-                    headless=True
+            options = uc.ChromeOptions()
+            options.add_argument('--headless')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument(f'--user-agent={ua.random}')
+            options.add_argument("--mute-audio")
+
+            driver = uc.Chrome(options=options)
+
+            driver.get(f"https://twitch.tv/{self.channel_name}")
+
+            try:
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.TAG_NAME, 'video'))
                 )
 
-                context = await browser.new_context(
-                    viewport={'width': 1280, 'height': 720},
-                    user_agent=ua.random
-                )
+                self.logger("Stream loaded, watching...")
 
-                page = await context.new_page()
+                with self._stats_lock:
+                    self.open_websockets += 1
+                    self.messages_sent += 1
 
-                # Navigate to Twitch stream
-                await page.goto(f"https://twitch.tv/{self.channel_name}", wait_until='domcontentloaded')
+                # Watch for an extended period (e.g., 5 minutes)
+                # Adjust sleep time as needed, but keep it reasonable
+                watch_time = 300
+                end_time = time.time() + watch_time
+                while time.time() < end_time and not self.should_stop:
+                    time.sleep(1)
 
-                # Wait for stream to be available
-                try:
-                    await page.wait_for_selector('video', timeout=15000)
+                self.logger("Viewer session completed")
 
-                    # Mute the stream
-                    await page.evaluate('''() => {
-                        const video = document.querySelector('video');
-                        if (video) {
-                            video.muted = true;
-                            video.volume = 0;
-                        }
-                    }''')
-
-                    self.logger("Stream loaded and muted, watching...")
-
-                    with self._stats_lock:
-                        self.open_websockets += 1
-                        self.messages_sent += 1
-
-                    # Watch for extended period (5 minutes)
-                    await asyncio.sleep(300)
-
-                    self.logger("Viewer session completed")
-
-                except Exception as e:
-                    self.logger(f"Stream not available or failed to load: {e}")
-
-                await browser.close()
+            except Exception as e:
+                self.logger(f"Stream not available or failed to load: {e}")
 
         except Exception as e:
             self.logger(f"Browser viewer error: {e}")
         finally:
+            if driver:
+                driver.quit()
             with self._stats_lock:
                 if self.open_websockets > 0:
                     self.open_websockets -= 1
@@ -257,23 +234,16 @@ class TwitchViewerBot:
         self.stats_worker_thread.start()
 
         while not self.should_stop and (not self.stop_event or not self.stop_event.is_set()):
-            for i in range(0, int(self.nb_of_threads)):
-                acquired = self.thread_semaphore.acquire()
+            if self.active_threads < self.nb_of_threads:
+                acquired = self.thread_semaphore.acquire(blocking=False)
                 if acquired:
                     threaded = Thread(target=self.send_twitch_view)
                     self.processes.append(threaded)
                     threaded.daemon = True
                     threaded.start()
-
-                    time.sleep(0.35)
-
-            if self.should_stop or (self.stop_event and self.stop_event.is_set()):
-                for _ in range(self.nb_of_threads):
-                    try:
-                        self.thread_semaphore.release()
-                    except ValueError:
-                        pass
-                break
+                    time.sleep(0.35) # Stagger thread starts
+            
+            time.sleep(1) # Main loop check interval
 
         for t in self.processes:
             t.join()
@@ -327,6 +297,7 @@ def run_twitch_viewbot_logic(status_updater, stop_event, channel, viewers, durat
 
 if __name__ == "__main__":
     try:
+        os.system('cls' if os.name == 'nt' else 'clear')
         channel = input("Enter Twitch channel name or URL: ").strip()
         if not channel:
             print("Channel name is needed.")
