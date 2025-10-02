@@ -4,3 +4,5 @@ requests
 curl_cffi
 uvicorn
 psutil
+websockets
+tls_client
