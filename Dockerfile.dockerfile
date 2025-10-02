@@ -8,6 +8,9 @@ WORKDIR /app
 # Copy your requirements.txt file into the container
 COPY requirements.txt .
 
+# Prevent Playwright from attempting to download browsers
+ENV PLAYWRIGHT_BROWSERS_PATH=0
+
 # Install your Python dependencies.
 # We don't need to run 'playwright install' because the browsers are already in the image.
 RUN pip install --no-cache-dir -r requirements.txt
