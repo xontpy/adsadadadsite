@@ -145,13 +145,11 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
     """
     async def connection_handler():
         try:
-            # Stagger initial connections to avoid overwhelming proxies
-            await asyncio.sleep(random.random() * 0.1)
             while not stop_event.is_set():
                 try:
                     token, proxy_url = get_token(logger, proxies_list)
                     if not token:
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(2)
                         continue
 
                     try:
@@ -172,7 +170,7 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
                                 payload = {"type": "ping"} if counter % 2 == 0 else {"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}}
                                 await ws.send_json(payload)
                                 # Delay between pings/handshakes
-                                await asyncio.sleep(11 + random.randint(2, 7))
+                                await asyncio.sleep(5 + random.randint(1, 3))
 
                     except Exception as e:
                         logger(f"Connection failed for viewer {index}: {type(e).__name__}")
@@ -185,10 +183,10 @@ def start_connection_thread(logger, channel_id, index, stop_event, proxies_list,
 
                     # Wait before retrying connection if the bot is still running
                     if not stop_event.is_set():
-                        await asyncio.sleep(random.randint(5, 10))
+                        await asyncio.sleep(random.randint(2, 5))
                 except Exception as e:
                     logger(f"Error in connection loop for viewer {index}: {e}")
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(2)
         except Exception as e:
             logger(f"Critical error in connection_handler for viewer {index}: {e}")
 
@@ -230,9 +228,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
         logger(f"Sending {viewers} views to {channel}")
         # Start viewer threads
         if rapid:
-            # Rapid mode: Start in small batches for server stability
-            batch_size = 5
-            batch_delay = 20
+            # Rapid mode: Start in larger batches for speed
+            batch_size = 10
+            batch_delay = 10
             for i in range(0, viewers, batch_size):
                 if stop_event.is_set():
                     break
@@ -246,9 +244,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
                     t.start()
                 time.sleep(batch_delay)
         else:
-            # Stable mode: Start in small batches for stability
-            batch_size = 5
-            batch_delay = 30
+            # Stable mode: Start in moderate batches
+            batch_size = 10
+            batch_delay = 15
             for i in range(0, viewers, batch_size):
                 if stop_event.is_set():
                     break
