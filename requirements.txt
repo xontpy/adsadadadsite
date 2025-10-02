@@ -12,4 +12,5 @@ python-multipart
 aiofiles
 jinja2
 streamlink
-playwright
+undetected-chromedriver
+selenium
