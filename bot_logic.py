@@ -42,7 +42,7 @@ session.set_option("http-headers", {
 })
 
 class ViewerBot:
-    def __init__(self, nb_of_threads, channel_name):
+    def __init__(self, nb_of_threads, channel_name, status_updater=None, stop_event=None):
         self.nb_of_threads = int(nb_of_threads)
         self.channel_name = self.extract_channel_name(channel_name)
         self.request_count = 0
@@ -66,6 +66,17 @@ class ViewerBot:
         self.stream_url_lock = threading.Lock()
         self.stream_url_cache_duration = 0.5
         self.channel_id = None
+        self.status_updater = status_updater
+        self.stop_event = stop_event
+
+    def logger(self, message):
+        if self.status_updater:
+            try:
+                self.status_updater.put({'log_line': str(message)})
+            except:
+                pass
+        else:
+            print(message)
         
         self._stats_lock = threading.Lock()
         self.open_websockets = 0
@@ -133,7 +144,7 @@ class ViewerBot:
             except Exception as e:
                 pass
             
-            print(f"All methods failed to get channel ID for: {self.channel_name}")
+            self.logger(f"All methods failed to get channel ID for: {self.channel_name}")
             return None
             
         except Exception as e:
@@ -190,11 +201,11 @@ class ViewerBot:
                 except Exception as e:
                     continue
             
-            print("Failed to get WebSocket token from all endpoints")
+            self.logger("Failed to get WebSocket token from all endpoints")
             return None
             
         except Exception as e:
-            print(f"Error getting WebSocket token: {e}")
+            self.logger(f"Error getting WebSocket token: {e}")
             return None
 
     def extract_channel_name(self, input_str):
@@ -205,34 +216,31 @@ class ViewerBot:
         return input_str.lower()
 
     def _stats_worker(self):
-        print()
-        print()
-        os.system('cls' if os.name == 'nt' else 'clear')
-        while not self.should_stop:
+        while not self.should_stop and (not self.stop_event or not self.stop_event.is_set()):
             try:
                 with self._stats_lock:
                     if self.start_time:
                         elapsed = datetime.datetime.now() - self.start_time
-                        duration = f"{int(elapsed.total_seconds())}s"
+                        duration_str = f"{int(elapsed.total_seconds())}s"
                     else:
-                        duration = "0s"
-                    
+                        duration_str = "0s"
+
                     open_ws = self.open_websockets
                     attempts = self.websocket_attempts
-                    is_live = self.live_streamer
                     pings = self.pings_sent
                     heartbeats = self.heartbeats_sent
-                
 
-                print("\033[2A", end="")
-                print(f"\033[2K\r[x] Open Websockets: \033[32m{open_ws}\033[0m | Websocket Attempts: \033[32m{attempts}\033[0m")
-                print(f"\033[2K\r[x] Pings Sent: \033[32m{pings}\033[0m | Heartbeats Sent: \033[32m{heartbeats}\033[0m | Duration: \033[32m{duration}\033[0m")
-                sys.stdout.flush()
-                
+                if self.status_updater:
+                    self.status_updater.put({
+                        "current_viewers": open_ws,
+                        "target_viewers": self.nb_of_threads,
+                        "is_running": True,
+                        "log_line": f"Active connections: {open_ws}, Attempts: {attempts}, Pings: {pings}, Duration: {duration_str}"
+                    })
+
                 time.sleep(1)
             except Exception as e:
                 time.sleep(1)
-
     def update_status(self, state, message, proxy_count=None, proxy_loading_progress=None, startup_progress=None):
         self.status.update({
             'state': state,
@@ -362,15 +370,15 @@ class ViewerBot:
     def main(self):
         start = datetime.datetime.now()
         self.start_time = start
-        
+
         self.channel_id = self.get_channel_id()
         self.processes = []
         self.live_streamer = True
-        
+
         self.stats_worker_thread = Thread(target=self._stats_worker, daemon=True)
         self.stats_worker_thread.start()
-        
-        while True:
+
+        while not self.should_stop and (not self.stop_event or not self.stop_event.is_set()):
             for i in range(0, int(self.nb_of_threads)):
                 acquired = self.thread_semaphore.acquire()
                 if acquired:
@@ -417,7 +425,9 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
 
         bot = ViewerBot(
             nb_of_threads=int(viewers),
-            channel_name=channel
+            channel_name=channel,
+            status_updater=status_updater,
+            stop_event=stop_event
         )
 
         # Modify bot to check stop_event
@@ -446,7 +456,7 @@ if __name__ == "__main__":
         if not channel:
             print("Channel name is needed.")
             sys.exit(1)
-
+            
         while True:
             try:
                 threads = int(input("Enter number of viewers: ").strip())
@@ -456,7 +466,7 @@ if __name__ == "__main__":
                     print("Number of threads must be bigger than 0")
             except ValueError:
                 print("Please enter a valid number")
-
+        
 
         bot = ViewerBot(
             nb_of_threads=threads,
