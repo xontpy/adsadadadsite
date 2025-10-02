@@ -411,7 +411,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (loginButton) {
         loginButton.addEventListener('click', () => {
             // Redirect to the backend /login route to initiate Discord OAuth
-            window.location.href = `${API_BASE_URL}/login`;
+            window.location.href = "/login";
         });
     }
 
