@@ -83,33 +83,37 @@
                 </button>
             </section>
             <section class="viewbot-status" style="display: none;">
-                <div class="success-animation">
-                    <div class="check-mark">
-                        <i class="fas fa-check"></i>
+                <div class="status-grid">
+                    <div class="status-main">
+                        <div class="status-icon">
+                            <i class="fas fa-play-circle"></i>
+                        </div>
+                        <h2>Viewbot Running</h2>
+                        <p>Successfully sending viewers to the channel</p>
                     </div>
-                    <h2>Viewbot is Active</h2>
-                    <p>Started sending viewers. The viewbot will run for the specified duration.</p>
+                    <div class="status-metrics">
+                        <div class="metric-box">
+                            <span class="metric-value" id="active-viewers">0</span>
+                            <small>Active Viewers</small>
+                        </div>
+                        <div class="metric-box">
+                            <span class="metric-value" id="time-remaining">00:00</span>
+                            <small>Time Remaining</small>
+                        </div>
+                        <div class="metric-box">
+                            <span class="metric-value" id="progress-percent">0%</span>
+                            <small>Progress</small>
+                        </div>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress" id="progress-bar" style="width: 0%;"></div>
+                        </div>
+                    </div>
+                    <button id="stop-bot-button" class="stop-button">
+                        <i class="fas fa-stop"></i> Stop Viewbot
+                    </button>
                 </div>
-                <div class="status-details">
-                    <div class="status-box">
-                        <span id="active-viewers">0 / 10000</span>
-                        <small>ACTIVE VIEWERS</small>
-                    </div>
-                    <div class="status-box">
-                        <span id="time-remaining">00:00</span>
-                        <small>TIME REMAINING</small>
-                    </div>
-                </div>
-                <div class="progress-container">
-                    <label>Progress</label>
-                    <div class="progress-bar">
-                        <div class="progress" id="progress-bar" style="width: 0%;"></div>
-                    </div>
-                    <span id="progress-percent">0%</span>
-                </div>
-                <button id="stop-bot-button" class="stop-button">
-                    <i class="fas fa-stop"></i> Stop Viewbot
-                </button>
             </section>
             <section id="settings-page" class="page" style="display: none;">
                 <h2>Settings</h2>
