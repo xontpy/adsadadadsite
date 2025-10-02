@@ -393,6 +393,52 @@ class ViewerBot:
             t.join()
 
 
+# This is the main entry point called by the web server.
+def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, rapid=False):
+    """
+    This function orchestrates the bot based on the ViewerBot class.
+    Adapted for web UI with status updates and stop event.
+    """
+    def bot_logger(message):
+        """Simple logger for web UI."""
+        if callable(status_updater):
+            try:
+                if isinstance(message, dict):
+                    status_updater.put(message)
+                else:
+                    status_updater.put({'log_line': str(message)})
+            except:
+                pass
+        else:
+            print(message)
+
+    try:
+        bot_logger("Initializing bot...")
+
+        bot = ViewerBot(
+            nb_of_threads=int(viewers),
+            channel_name=channel
+        )
+
+        # Modify bot to check stop_event
+        original_should_stop = bot.should_stop
+        def check_stop():
+            return original_should_stop or (hasattr(stop_event, 'is_set') and stop_event.is_set())
+        bot.should_stop = property(check_stop)
+
+        # Run the bot
+        bot.main()
+
+    except Exception as e:
+        bot_logger(f"Critical error in bot: {e}")
+    finally:
+        bot_logger("Bot process has stopped.")
+        try:
+            status_updater.put({"is_running": False, "current_viewers": 0})
+        except:
+            pass
+
+
 if __name__ == "__main__":
     try:
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -400,7 +446,7 @@ if __name__ == "__main__":
         if not channel:
             print("Channel name is needed.")
             sys.exit(1)
-            
+
         while True:
             try:
                 threads = int(input("Enter number of viewers: ").strip())
@@ -410,7 +456,7 @@ if __name__ == "__main__":
                     print("Number of threads must be bigger than 0")
             except ValueError:
                 print("Please enter a valid number")
-        
+
 
         bot = ViewerBot(
             nb_of_threads=threads,
