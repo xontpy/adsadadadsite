@@ -408,6 +408,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Event Listeners ---
+    if (loginButton) {
+        loginButton.addEventListener('click', () => {
+            // Redirect to the backend /login route to initiate Discord OAuth
+            window.location.href = `${API_BASE_URL}/login`;
+        });
+    }
+
+    if (logoutButton) {
+        logoutButton.addEventListener('click', () => {
+            localStorage.removeItem('accessToken');
+            // We can just reload the page. checkUserSession will handle showing the login button.
+            window.location.reload();
+        });
+    }
+
     menuItems.forEach(item => {
         item.addEventListener('click', (e) => {
             e.preventDefault();
