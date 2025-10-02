@@ -6,7 +6,10 @@ import sys
 import threading
 import time
 import traceback
-from curl_cffi import requests, AsyncSession
+import tls_client
+import websockets
+import json
+from threading import Semaphore
 
 # This function is required by the web server to send logs and status updates to the UI.
 def bot_logger(status_updater, message):
@@ -24,7 +27,9 @@ def bot_logger(status_updater, message):
         sys.stdout.write(f"\r[UI_LOG_FAIL] {message}")
         sys.stdout.flush()
 
-# --- Core Logic adapted from main(2).py ---
+CLIENT_TOKEN = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+
+# --- Core Logic adapted from kick.py ---
 # The following functions are taken directly from main(2).py and adapted to use the
 # web UI logger and to handle errors gracefully without exiting the entire application.
 
@@ -65,136 +70,201 @@ def pick_proxy(logger, proxies_list):
         logger(f"Proxy error: {proxy}, {e}")
         return None, None
 
-def get_channel_id(logger, channel_name=None, proxies_list=None):
-    """Gets the channel ID using synchronous requests (SYNC)."""
-    for _ in range(5):
-        s = requests.Session(impersonate="chrome")
-        proxy_dict, _ = pick_proxy(logger, proxies_list)
-        if not proxy_dict:
-            continue
-        s.proxies = proxy_dict
-        try:
-            r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
-            if r.status_code == 200:
-                return r.json().get("id")
-            else:
-                logger(f"Channel ID: {r.status_code}, retrying...")
-        except Exception as e:
-            logger(f"Channel ID error: {e}, retrying...")
-        time.sleep(1)
-    logger("Failed to get channel ID after multiple retries with proxies. Retrying without proxy...")
+def get_channel_id(logger, channel_name=None):
+    """Gets the channel ID using tls_client (from kick.py)."""
     try:
-        s = requests.Session(impersonate="chrome")
-        r = s.get(f"https://kick.com/api/v2/channels/{channel_name}", timeout=5)
-        if r.status_code == 200:
-            channel_id = r.json().get("id")
-            if channel_id:
-                logger(f"Got channel ID without proxy: {channel_id}")
+        s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
+        s.headers.update({
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://kick.com/',
+            'Origin': 'https://kick.com',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        })
+
+        try:
+            response = s.get(f'https://kick.com/api/v2/channels/{channel_name}')
+            if response.status_code == 200:
+                data = response.json()
+                channel_id = data.get("id")
                 return channel_id
-    except Exception as e:
-        logger(f"Failed to get channel ID without proxy: {e}")
-    logger("Failed to get channel ID after multiple retries.")
-    return None
-
-def get_token(logger, proxies_list):
-    """Gets a viewer token using a synchronous request."""
-    max_attempts = 5
-    for attempt in range(max_attempts):
-        proxy_dict, proxy_url = pick_proxy(logger, proxies_list)
-        try:
-            session_kwargs = {"impersonate": "chrome", "timeout": 15}
-            if proxy_dict:
-                session_kwargs["proxies"] = proxy_dict
-            with requests.Session(**session_kwargs) as s:
-                r_kick = s.get("https://kick.com")
-                client_token_match = re.search(r'"clientToken"\s*:\s*"([^"]+)"', r_kick.text)
-                client_token = client_token_match.group(1) if client_token_match else "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
-                s.headers["X-CLIENT-TOKEN"] = client_token
-                r = s.get('https://websockets.kick.com/viewer/v1/token')
-                if r.status_code == 200:
-                    token = r.json()["data"]["token"]
-                    return token, proxy_url
         except Exception as e:
-            pass  # logger(f"Token (Error: {e}), retrying...")
-        time.sleep(1)
-    logger("Failed to get token after proxy retries. Retrying without proxy...")
-    try:
-        session_kwargs = {"impersonate": "chrome", "timeout": 15}
-        with requests.Session(**session_kwargs) as s:
-            r_kick = s.get("https://kick.com")
-            client_token_match = re.search(r'"clientToken"\s*:\s*"([^"]+)"', r_kick.text)
-            client_token = client_token_match.group(1) if client_token_match else "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
-            s.headers["X-CLIENT-TOKEN"] = client_token
-            r = s.get('https://websockets.kick.com/viewer/v1/token')
-            if r.status_code == 200:
-                token = r.json()["data"]["token"]
-                proxy_url = None
-                logger("Got token without proxy.")
-                return token, proxy_url
-    except Exception as e:
-        logger(f"Failed to get token without proxy: {e}")
-    logger("Failed to get token after all retries.")
-    return None, None
+            pass
 
-def start_connection_thread(logger, channel_id, index, stop_event, proxies_list, connected_viewers, total_viewers):
+        try:
+            response = s.get(f'https://kick.com/api/v1/channels/{channel_name}')
+            if response.status_code == 200:
+                data = response.json()
+                channel_id = data.get("id")
+                return channel_id
+        except Exception as e:
+            pass
+
+        try:
+            response = s.get(f'https://kick.com/{channel_name}')
+            if response.status_code == 200:
+                patterns = [
+                    r'"id":(\d+).*?"slug":"' + re.escape(channel_name) + r'"',
+                    r'"channel_id":(\d+)',
+                    r'channelId["\']:\s*(\d+)',
+                    r'channel.*?id["\']:\s*(\d+)'
+                ]
+
+                for pattern in patterns:
+                    match = re.search(pattern, response.text, re.IGNORECASE)
+                    if match:
+                        channel_id = int(match.group(1))
+                        return channel_id
+        except Exception as e:
+            pass
+
+        logger(f"All methods failed to get channel ID for: {channel_name}")
+        return None
+
+    except Exception as e:
+        logger(f"Error getting channel ID: {e}")
+        return None
+
+def get_token(logger):
+    """Gets a viewer token using tls_client (from kick.py)."""
+    try:
+        s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
+        s.headers.update({
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        })
+
+        try:
+            session_resp = s.get("https://kick.com")
+            s.headers["X-CLIENT-TOKEN"] = CLIENT_TOKEN
+            response = s.get('https://websockets.kick.com/viewer/v1/token')
+
+            if response.status_code == 200:
+                data = response.json()
+                token = data.get("data", {}).get("token")
+                if token:
+                    return token
+        except Exception as e:
+            pass
+
+        token_endpoints = [
+            'https://websockets.kick.com/viewer/v1/token',
+            'https://kick.com/api/websocket/token',
+            'https://kick.com/api/v1/websocket/token'
+        ]
+
+        for endpoint in token_endpoints:
+            try:
+                s.headers["X-CLIENT-TOKEN"] = CLIENT_TOKEN
+                response = s.get(endpoint, timeout=10)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    token = data.get("data", {}).get("token") or data.get("token")
+                    if token:
+                        return token
+            except Exception as e:
+                continue
+
+        logger("Failed to get WebSocket token from all endpoints")
+        return None
+
+    except Exception as e:
+        logger(f"Error getting WebSocket token: {e}")
+        return None
+
+def start_connection_thread(logger, channel_id, index, stop_event, connected_viewers, total_viewers, thread_semaphore):
     """
-    This is the core connection logic from main(2).py, running in a loop for a single thread.
+    This is the core connection logic adapted from kick.py, using websockets.
     It has been adapted to:
     - Use the `stop_event` to allow graceful shutdown from the UI.
     - Update the `connected_viewers` set for accurate UI reporting.
+    - Use semaphore to limit concurrent connections.
     """
-    async def connection_handler():
-        try:
-            while not stop_event.is_set():
-                try:
-                    token, proxy_url = get_token(logger, proxies_list)
-                    if not token:
-                        await asyncio.sleep(2)
-                        continue
-
-                    try:
-                        # Using AsyncSession for the WebSocket connection as in the original script
-                        async with AsyncSession() as s:
-                            ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
-                            ws = await s.ws_connect(ws_url, proxy=proxy_url)
-
-                            # --- Viewer Connected ---
-                            connected_viewers.add(index)
-                            logger(f"Viewer {index} connected successfully")
-                            # Update status immediately
-                            logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
-
-                            counter = 0
-                            while not stop_event.is_set():
-                                counter += 1
-                                payload = {"type": "ping"} if counter % 2 == 0 else {"type": "channel_handshake", "data": {"message": {"channelId": channel_id}}}
-                                await ws.send_json(payload)
-                                # Delay between pings/handshakes
-                                await asyncio.sleep(5 + random.randint(1, 3))
-
-                    except Exception as e:
-                        logger(f"Connection failed for viewer {index}: {type(e).__name__}")
-                    finally:
-                        # --- Viewer Disconnected ---
-                        if not stop_event.is_set():
-                            connected_viewers.discard(index)
-                            # Update status immediately
-                            logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
-
-                    # Wait before retrying connection if the bot is still running
-                    if not stop_event.is_set():
-                        await asyncio.sleep(random.randint(2, 5))
-                except Exception as e:
-                    logger(f"Error in connection loop for viewer {index}: {e}")
-                    await asyncio.sleep(2)
-        except Exception as e:
-            logger(f"Critical error in connection_handler for viewer {index}: {e}")
-
     try:
-        # Each thread runs its own asyncio event loop, as in the original script
-        asyncio.run(connection_handler())
+        thread_semaphore.acquire()
+        try:
+            token = get_token(logger)
+            if not token:
+                return
+
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(_websocket_worker(token, logger, channel_id, index, stop_event, connected_viewers, total_viewers))
+            except Exception as e:
+                pass
+            finally:
+                try:
+                    loop.close()
+                except Exception:
+                    pass
+
+        except Exception as e:
+            pass
+        finally:
+            thread_semaphore.release()
+
     except Exception as e:
-        logger(f"Critical error in thread {index}: {e}\n{traceback.format_exc()}")
+        logger(f"Critical error in thread {index}: {e}")
+
+async def _websocket_worker(token, logger, channel_id, index, stop_event, connected_viewers, total_viewers):
+    connection_opened = False
+    try:
+        ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
+
+        async with websockets.connect(ws_url) as websocket:
+            connected_viewers.add(index)
+            connection_opened = True
+            logger(f"Viewer {index} connected successfully")
+            # Update status immediately
+            logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
+
+            handshake_msg = {
+                "type": "channel_handshake",
+                "data": {
+                    "message": {"channelId": channel_id}
+                }
+            }
+            await websocket.send(json.dumps(handshake_msg))
+
+            ping_count = 0
+            while not stop_event.is_set() and ping_count < 10:
+                ping_count += 1
+
+                ping_msg = {"type": "ping"}
+                await websocket.send(json.dumps(ping_msg))
+
+                sleep_time = 12 + random.randint(1, 5)
+                await asyncio.sleep(sleep_time)
+
+    except websockets.exceptions.ConnectionClosed:
+        pass
+    except Exception as e:
+        logger(f"Connection failed for viewer {index}: {type(e).__name__}")
+    finally:
+        if connection_opened:
+            connected_viewers.discard(index)
+            logger({"current_viewers": len(connected_viewers), "target_viewers": total_viewers})
 
 # This is the main entry point called by the web server.
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, rapid=False):
@@ -209,56 +279,29 @@ def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_min
     end_time = start_time + duration_seconds
 
     try:
-        logger("Initializing bot with logic from main(2).py...")
+        logger("Initializing bot with logic from kick.py...")
 
-        proxies = load_proxies(logger)
-        if not proxies:
-            logger("Halting: No proxies loaded.")
-            return
-
-        channel_id = get_channel_id(logger, channel, proxies)
+        channel_id = get_channel_id(logger, channel)
         if not channel_id:
             logger("Halting: Failed to get channel ID.")
             return
 
         # This set is necessary to track active viewers for the UI.
         connected_viewers = set()
+        thread_semaphore = Semaphore(viewers)
         threads = []
 
         logger(f"Sending {viewers} views to {channel}")
-        # Start viewer threads
-        if rapid:
-            # Rapid mode: Start in larger batches for speed
-            batch_size = 10
-            batch_delay = 10
-            for i in range(0, viewers, batch_size):
-                if stop_event.is_set():
-                    break
-                for j in range(min(batch_size, viewers - i)):
-                    idx = i + j + 1
-                    t = threading.Thread(
-                        target=start_connection_thread,
-                        args=(logger, channel_id, idx, stop_event, proxies, connected_viewers, viewers)
-                    )
-                    threads.append(t)
-                    t.start()
-                time.sleep(batch_delay)
-        else:
-            # Stable mode: Start in moderate batches
-            batch_size = 10
-            batch_delay = 15
-            for i in range(0, viewers, batch_size):
-                if stop_event.is_set():
-                    break
-                for j in range(min(batch_size, viewers - i)):
-                    idx = i + j + 1
-                    t = threading.Thread(
-                        target=start_connection_thread,
-                        args=(logger, channel_id, idx, stop_event, proxies, connected_viewers, viewers)
-                    )
-                    threads.append(t)
-                    t.start()
-                time.sleep(batch_delay)  # Delay between batches
+        # Start viewer threads all at once (no batches)
+        for idx in range(1, viewers + 1):
+            if stop_event.is_set():
+                break
+            t = threading.Thread(
+                target=start_connection_thread,
+                args=(logger, channel_id, idx, stop_event, connected_viewers, viewers, thread_semaphore)
+            )
+            threads.append(t)
+            t.start()
 
         # --- Monitoring Loop ---
         # This part is an adaptation for the web UI. It checks the stop request,
