@@ -362,10 +362,11 @@ input[type="range"]::-webkit-slider-thumb {
     text-align: center;
 }
 
-.status-icon .fa-play-circle {
+.status-icon .fa-check {
     font-size: 48px;
     color: var(--primary-green);
     margin-bottom: 15px;
+    animation: checkBounce 1s ease-in-out;
 }
 
 .viewbot-status h2 {
