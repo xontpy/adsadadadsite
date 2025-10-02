@@ -1,3 +1,20 @@
+// Immediately check for an authentication token in the URL hash.
+// If found, store it in localStorage and reload the page with a clean URL.
+// This mimics the behavior of the old auth.html page and ensures the app
+// always initializes from a clean state.
+(function() {
+    const hash = window.location.hash;
+    if (hash.startsWith('#token=')) {
+        const token = hash.substring('#token='.length);
+        if (token) {
+            localStorage.setItem('accessToken', token);
+        }
+        // Redirect to the root URL to clear the hash.
+        // The rest of the script will execute on the reloaded page.
+        window.location.href = '/';
+    }
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- Constants ---
     const API_BASE_URL = ''; // Correct for single-server setup
@@ -133,19 +150,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function checkUserSession() {
-        const hash = window.location.hash;
-        if (hash.startsWith('#token=')) {
-            const token = hash.substring('#token='.length);
-            localStorage.setItem('accessToken', token);
-            window.history.replaceState(null, '', window.location.pathname + window.location.search);
-            await fetchUserData(token);
+        // The logic for handling the URL hash has been moved to the top of the script.
+        // This function now only needs to check for a token in localStorage.
+        const storedToken = localStorage.getItem('accessToken');
+        if (storedToken) {
+            await fetchUserData(storedToken);
         } else {
-            const storedToken = localStorage.getItem('accessToken');
-            if (storedToken) {
-                await fetchUserData(storedToken);
-            } else {
-                showLoginState();
-            }
+            showLoginState();
         }
     }
 
@@ -411,7 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (loginButton) {
         loginButton.addEventListener('click', () => {
             // Redirect to the backend /login route to initiate Discord OAuth
-            window.location.href = "/login";
+            window.location.href = `${API_BASE_URL}/login`;
         });
     }
 
