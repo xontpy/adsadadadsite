@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const viewersValue = document.getElementById('views-value');
     const durationSlider = document.getElementById('duration-input');
     const durationValue = document.getElementById('duration-value');
+    const rapidToggle = document.getElementById('rapid-toggle');
 
     const twitchChannelInput = document.getElementById('twitch-channel-input');
     const twitchViewersSlider = document.getElementById('twitch-views-input');
@@ -321,6 +322,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 channel: channelInput.value,
                 views: parseInt(viewersSlider.value, 10),
                 duration: parseInt(durationSlider.value, 10),
+                rapid: rapidToggle.checked
             };
             if(startButton) {
                 startButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
@@ -369,7 +371,8 @@ document.addEventListener('DOMContentLoaded', () => {
             botState = 'idle';
         } finally {
             if(startButton) {
-                startButton.innerHTML = `Start ${platform === 'kick' ? 'Viewbot' : 'Twitch Viewbot'}`;
+                const buttonText = platform === 'kick' ? 'Start Viewbot' : 'Start Twitch Viewbot';
+                startButton.innerHTML = `<i class="fas fa-play"></i> ${buttonText}`;
                 startButton.disabled = false;
             }
             showCorrectScreen();
@@ -411,46 +414,43 @@ document.addEventListener('DOMContentLoaded', () => {
             activePage = item.dataset.page;
             menuItems.forEach(i => i.classList.remove('active'));
             item.classList.add('active');
+
+            const header = document.querySelector('.main-header h1');
+            if (header) {
+                if (activePage === 'viewbot') {
+                    header.textContent = 'Kick Viewbot';
+                } else if (activePage === 'twitch-viewbot') {
+                    header.textContent = 'Twitch Viewbot';
+                } else {
+                    header.textContent = item.textContent.trim();
+                }
+            }
+
             showCorrectScreen();
         });
     });
 
     if (viewersSlider) {
-        viewersSlider.addEventListener('input', () => {
-            if(viewersValue) viewersValue.textContent = viewersSlider.value;
+        viewersSlider.addEventListener('input', (e) => {
+            viewersValue.textContent = e.target.value;
         });
     }
 
     if (durationSlider) {
-        durationSlider.addEventListener('input', () => {
-            if(durationValue) durationValue.textContent = `${durationSlider.value} min`;
+        durationSlider.addEventListener('input', (e) => {
+            durationValue.textContent = `${e.target.value} min`;
         });
     }
 
     if (twitchViewersSlider) {
-        twitchViewersSlider.addEventListener('input', () => {
-            if(twitchViewersValue) twitchViewersValue.textContent = twitchViewersSlider.value;
+        twitchViewersSlider.addEventListener('input', (e) => {
+            twitchViewersValue.textContent = e.target.value;
         });
     }
 
     if (twitchDurationSlider) {
-        twitchDurationSlider.addEventListener('input', () => {
-            if(twitchDurationValue) twitchDurationValue.textContent = `${twitchDurationSlider.value} min`;
-        });
-    }
-
-    if (loginButton) {
-        loginButton.addEventListener('click', () => {
-            window.location.href = '/login';
-        });
-    }
-
-    if (logoutButton) {
-        logoutButton.addEventListener('click', () => {
-            localStorage.removeItem('accessToken');
-            botState = 'idle';
-            statusFalseCount = 0;
-            window.location.reload();
+        twitchDurationSlider.addEventListener('input', (e) => {
+            twitchDurationValue.textContent = `${e.target.value} min`;
         });
     }
 
