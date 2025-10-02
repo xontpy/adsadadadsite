@@ -1,24 +1,29 @@
-# Use the official Microsoft Playwright image for Python.
-# This image comes with all necessary system dependencies and browser binaries pre-installed.
-FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
+# Use a base image with Python
+FROM python:3.11-slim-buster
 
-# Set the working directory inside the container
+# Set the working directory
 WORKDIR /app
 
-# Copy your requirements.txt file into the container
+# Install dependencies for Chrome
+RUN apt-get update && apt-get install -y wget gnupg unzip --no-install-recommends
+
+# Add Google's official GPG key
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add -
+# Set up the repository
+RUN sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+
+# Install Google Chrome
+RUN apt-get update && apt-get install -y google-chrome-stable --no-install-recommends
+
+# Copy your application files
 COPY requirements.txt .
 
-# Install your Python dependencies.
-# We set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 to explicitly prevent any browser download attempts,
-# as they are already included in the base image.
-RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies
+# undetected-chromedriver will download the correct driver
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of your application code into the container
 COPY . .
 
-# Expose the port your FastAPI application runs on (uvicorn default is 8000)
 EXPOSE 8000
 
-# The command to run your application when the container starts.
-# This should match your current start command on Render.
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
