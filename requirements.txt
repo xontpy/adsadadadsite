@@ -6,3 +6,4 @@ uvicorn
 psutil
 websockets
 tls_client
+fake_useragent
