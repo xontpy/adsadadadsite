@@ -286,6 +286,12 @@ class ViewerBot:
 
 # This is the main entry point called by the web server.
 def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, rapid=False):
+    logger = lambda msg: bot_logger(status_updater, msg)
+
+    if not channel or not channel.strip():
+        logger("Channel name is required.")
+        return
+
     bot = ViewerBot(viewers, channel, status_updater, stop_event)
     bot.start_time = datetime.datetime.now()
 
