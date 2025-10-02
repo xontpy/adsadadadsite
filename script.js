@@ -12,7 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const premiumPlanBanner = document.querySelector('.premium-plan');
 
     const menuItems = document.querySelectorAll('.menu-item');
-    const viewbotControlsScreen = document.querySelector('.viewbot-controls');
+    const kickViewbotPage = document.getElementById('kick-viewbot-page');
+    const twitchViewbotPage = document.getElementById('twitch-viewbot-page');
     const viewbotStatusScreen = document.querySelector('.viewbot-status');
     const viewsEndedModal = document.getElementById('views-ended-modal');
     const settingsPage = document.getElementById('settings-page');
@@ -20,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const supportPage = document.getElementById('support-page');
 
     const startBtn = document.getElementById('start-btn');
+    const twitchStartBtn = document.getElementById('twitch-start-btn');
     const stopBotButton = document.getElementById('stop-bot-button');
     const viewsEndedDoneBtn = document.getElementById('views-ended-done-btn');
 
@@ -28,6 +30,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const viewersValue = document.getElementById('views-value');
     const durationSlider = document.getElementById('duration-input');
     const durationValue = document.getElementById('duration-value');
+
+    const twitchChannelInput = document.getElementById('twitch-channel-input');
+    const twitchViewersSlider = document.getElementById('twitch-views-input');
+    const twitchViewersValue = document.getElementById('twitch-views-value');
+    const twitchDurationSlider = document.getElementById('twitch-duration-input');
+    const twitchDurationValue = document.getElementById('twitch-duration-value');
 
     // Settings elements
     const themeSelect = document.getElementById('theme-select');
@@ -98,25 +106,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function showCorrectScreen() {
         // Hide all pages first
-        if (viewbotControlsScreen) viewbotControlsScreen.style.display = 'none';
+        if (kickViewbotPage) kickViewbotPage.style.display = 'none';
+        if (twitchViewbotPage) twitchViewbotPage.style.display = 'none';
         if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'none';
         if (settingsPage) settingsPage.style.display = 'none';
         if (logsPage) logsPage.style.display = 'none';
         if (supportPage) supportPage.style.display = 'none';
 
         // Show the correct page based on the active menu item and bot state
-        if (activePage === 'viewbot') {
-            if (botState === 'running' || botState === 'starting' || botState === 'stopping' || botState === 'ended') {
-                if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'block';
-            } else { // idle
-                if (viewbotControlsScreen) viewbotControlsScreen.style.display = 'block';
+        if (botState === 'running' || botState === 'starting' || botState === 'stopping' || botState === 'ended') {
+            if (viewbotStatusScreen) viewbotStatusScreen.style.display = 'block';
+        } else { // idle
+            if (activePage === 'viewbot') {
+                if (kickViewbotPage) kickViewbotPage.style.display = 'block';
+            } else if (activePage === 'twitch-viewbot') {
+                if (twitchViewbotPage) twitchViewbotPage.style.display = 'block';
+            } else if (activePage === 'settings') {
+                if (settingsPage) settingsPage.style.display = 'block';
+            } else if (activePage === 'logs') {
+                if (logsPage) logsPage.style.display = 'block';
+            } else if (activePage === 'support') {
+                if (supportPage) supportPage.style.display = 'block';
             }
-        } else if (activePage === 'settings') {
-            if (settingsPage) settingsPage.style.display = 'block';
-        } else if (activePage === 'logs') {
-            if (logsPage) logsPage.style.display = 'block';
-        } else if (activePage === 'support') {
-            if (supportPage) supportPage.style.display = 'block';
         }
     }
 
@@ -184,6 +195,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 viewersSlider.value = viewersSlider.max;
             }
             if(viewersValue) viewersValue.textContent = viewersSlider.value;
+        }
+        if (twitchViewersSlider) {
+            twitchViewersSlider.max = user.max_views || 100;
+            if (parseInt(twitchViewersSlider.value) > twitchViewersSlider.max) {
+                twitchViewersSlider.value = twitchViewersSlider.max;
+            }
+            if(twitchViewersValue) twitchViewersValue.textContent = twitchViewersSlider.value;
         }
         showCorrectScreen();
     }
@@ -282,7 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statusPollInterval = null;
     }
 
-    async function startBot() {
+    async function startBot(platform) {
         const token = localStorage.getItem('accessToken');
         if (!token) {
             alert('Please log in first.');
@@ -291,21 +309,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
         statusFalseCount = 0;
         botState = 'starting';
-        if(startBtn) {
-            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
-            startBtn.disabled = true;
+        
+        let payload;
+        let startButton;
+        let apiUrl;
+
+        if (platform === 'kick') {
+            apiUrl = `${API_BASE_URL}/api/start`;
+            startButton = startBtn;
+            payload = {
+                channel: channelInput.value,
+                views: parseInt(viewersSlider.value, 10),
+                duration: parseInt(durationSlider.value, 10),
+            };
+            if(startButton) {
+                startButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+                startButton.disabled = true;
+            }
+        } else if (platform === 'twitch') {
+            apiUrl = `${API_BASE_URL}/api/start-twitch`;
+            startButton = twitchStartBtn;
+            payload = {
+                channel: twitchChannelInput.value,
+                views: parseInt(twitchViewersSlider.value, 10),
+                duration: parseInt(twitchDurationSlider.value, 10),
+            };
+            if(startButton) {
+                startButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+                startButton.disabled = true;
+            }
+        } else {
+            return;
         }
+
         showCorrectScreen();
 
-        const payload = {
-            channel: channelInput.value,
-            views: parseInt(viewersSlider.value, 10),
-            duration: parseInt(durationSlider.value, 10),
-            rapid: document.getElementById('rapid-toggle').checked
-        };
-
         try {
-            const response = await fetch(`${API_BASE_URL}/api/start`, {
+            const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -318,7 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 playSuccessSound();
                 botState = 'running';
                 startPolling();
-                showNotification('Viewbot Started', `Sending ${payload.views} views to ${payload.channel}`);
+                showNotification(`Viewbot Started`, `Sending ${payload.views} views to ${payload.channel}`);
             } else {
                 const errorData = await response.json();
                 alert(`Error starting bot: ${errorData.detail}`);
@@ -328,9 +368,9 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`Failed to connect to the server: ${error}`);
             botState = 'idle';
         } finally {
-            if(startBtn) {
-                startBtn.innerHTML = 'Start Viewbot';
-                startBtn.disabled = false;
+            if(startButton) {
+                startButton.innerHTML = `Start ${platform === 'kick' ? 'Viewbot' : 'Twitch Viewbot'}`;
+                startButton.disabled = false;
             }
             showCorrectScreen();
         }
@@ -387,6 +427,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (twitchViewersSlider) {
+        twitchViewersSlider.addEventListener('input', () => {
+            if(twitchViewersValue) twitchViewersValue.textContent = twitchViewersSlider.value;
+        });
+    }
+
+    if (twitchDurationSlider) {
+        twitchDurationSlider.addEventListener('input', () => {
+            if(twitchDurationValue) twitchDurationValue.textContent = `${twitchDurationSlider.value} min`;
+        });
+    }
+
     if (loginButton) {
         loginButton.addEventListener('click', () => {
             window.location.href = '/login';
@@ -403,7 +455,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (startBtn) {
-        startBtn.addEventListener('click', startBot);
+        startBtn.addEventListener('click', () => startBot('kick'));
+    }
+
+    if (twitchStartBtn) {
+        twitchStartBtn.addEventListener('click', () => startBot('twitch'));
     }
 
     if (stopBotButton) {
