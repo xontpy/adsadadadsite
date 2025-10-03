@@ -4,6 +4,7 @@ import random
 import re
 import threading
 import time
+import queue
 
 import tls_client
 import websockets
@@ -51,8 +52,8 @@ def get_channel_id(channel_name):
                 patterns = [
                     r'"id":(\d+).*?"slug":"' + re.escape(channel_name) + r'"',
                     r'"channel_id":(\d+)',
-                    r'channelId["\']:\s*(\d+)',
-                    r'channel.*?id["\']:\s*(\d+)'
+                    r'channelId[\"\']:\s*(\d+)',
+                    r'channel.*?id[\"\']:\s*(\d+)'
                 ]
                 
                 for pattern in patterns:
@@ -122,9 +123,9 @@ def get_token():
     except Exception:
         return None
 
-async def _websocket_worker(channel_id, index, initial_token):
+async def _websocket_worker(channel_id, index, initial_token, stop_event):
     token = initial_token
-    while True:
+    while not stop_event.is_set():
         if not token:
             token = get_token()
             if not token:
@@ -146,7 +147,7 @@ async def _websocket_worker(channel_id, index, initial_token):
                 print(f"[{index}] handshake sent")
                 
                 ping_count = 0
-                while ping_count < 10:
+                while ping_count < 10 and not stop_event.is_set():
                     ping_count += 1
                     
                     ping_msg = {"type": "ping"}
@@ -155,7 +156,15 @@ async def _websocket_worker(channel_id, index, initial_token):
                     
                     sleep_time = 12 + random.randint(1, 5)
                     print(f"[{index}] waiting {sleep_time}s")
-                    await asyncio.sleep(sleep_time)
+
+                    for _ in range(sleep_time):
+                        if stop_event.is_set():
+                            break
+                        await asyncio.sleep(1)
+                    
+                    if stop_event.is_set():
+                        break
+
             token = None
         except Exception as e:
             if "429" in str(e):
@@ -165,56 +174,105 @@ async def _websocket_worker(channel_id, index, initial_token):
                 await asyncio.sleep(random.randint(4, 8))
             token = None
 
-def start_connection_thread(channel_id, index, initial_token):
+def start_connection_thread(channel_id, index, initial_token, stop_event):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(_websocket_worker(channel_id, index, initial_token))
+    loop.run_until_complete(_websocket_worker(channel_id, index, initial_token, stop_event))
 
 def fetch_token_job(index, tokens_list):
     tokens_list[index] = get_token()
 
-if __name__ == "__main__":
-    channel = input("Channel link or name: ").split("/")[-1]
-    total_views = int(input("How many viewers to send: "))
+def run_viewbot_logic(status_queue, stop_event, channel, total_views, duration, rapid):
+    try:
+        status_queue.put({'log_line': f"Fetching channel ID for: {channel}"})
+        channel_id = get_channel_id(channel)
+        if not channel_id:
+            status_queue.put({'log_line': "Channel not found."})
+            return
 
-    channel_id = get_channel_id(channel)
-    if not channel_id:
-        print("Channel not found.")
-        exit(1)
+        status_queue.put({'log_line': f"Channel ID found: {channel_id}"})
+        status_queue.put({'log_line': f"Fetching {total_views} tokens..."})
 
-    print(f"Fetching {total_views} tokens...")
-    
-    tokens = []
-    while len(tokens) < total_views:
-        needed = total_views - len(tokens)
-        print(f"Need to fetch {needed} more tokens...")
-        
-        newly_fetched = [None] * needed
+        tokens = []
+        while len(tokens) < total_views and not stop_event.is_set():
+            needed = total_views - len(tokens)
+            status_queue.put({'log_line': f"Need to fetch {needed} more tokens..."})
+
+            newly_fetched = [None] * needed
+            threads = []
+            for i in range(needed):
+                if stop_event.is_set():
+                    break
+                t = threading.Thread(target=fetch_token_job, args=(i, newly_fetched))
+                threads.append(t)
+                t.start()
+
+            for t in threads:
+                t.join()
+
+            valid_new_tokens = [t for t in newly_fetched if t]
+            tokens.extend(valid_new_tokens)
+
+            status_queue.put({'log_line': f"Fetched {len(valid_new_tokens)} new tokens. Total: {len(tokens)}/{total_views}"})
+            status_queue.put({'current_viewers': len(tokens)})
+
+            if len(tokens) < total_views and not stop_event.is_set():
+                status_queue.put({'log_line': "Some token fetches failed, retrying in 3 seconds..."})
+                time.sleep(3)
+
+        if stop_event.is_set():
+            status_queue.put({'log_line': "Bot stopping during token fetch."})
+            return
+
+        status_queue.put({'log_line': f"Successfully fetched {len(tokens)} tokens. Starting viewers..."})
+
         threads = []
-        for i in range(needed):
-            t = threading.Thread(target=fetch_token_job, args=(i, newly_fetched))
+        for i, token in enumerate(tokens):
+            if stop_event.is_set():
+                break
+            t = threading.Thread(target=start_connection_thread, args=(channel_id, i, token, stop_event))
+            t.daemon = True
             threads.append(t)
             t.start()
 
-        for t in threads:
-            t.join()
-        
-        valid_new_tokens = [t for t in newly_fetched if t]
-        tokens.extend(valid_new_tokens)
-        
-        print(f"Fetched {len(valid_new_tokens)} new tokens. Total: {len(tokens)}/{total_views}")
-        
-        if len(tokens) < total_views:
-            print("Some token fetches failed, retrying in 3 seconds...")
-            time.sleep(3)
+        start_time = time.time()
+        end_time = start_time + duration * 60 if duration > 0 else float('inf')
 
-    print(f"Successfully fetched {len(tokens)} tokens. Starting viewers...")
+        while time.time() < end_time and not stop_event.is_set():
+            time.sleep(1)
 
-    threads = []
-    for i, token in enumerate(tokens):
-        t = threading.Thread(target=start_connection_thread, args=(channel_id, i, token))
-        threads.append(t)
-        t.start()
+        stop_event.set()
+        status_queue.put({'log_line': "Bot stopping..."})
 
-    for t in threads:
-        t.join()
+    except Exception as e:
+        status_queue.put({'log_line': f"An error occurred: {e}"})
+    finally:
+        status_queue.put({'log_line': "Viewbot logic finished."})
+        status_queue.put({'is_running': False})
+
+
+if __name__ == "__main__":
+    channel = input("Channel link or name: ").split("/")[-1]
+    total_views = int(input("How many viewers to send: "))
+    duration = int(input("Enter duration in minutes (0 for unlimited): "))
+
+    status_queue = queue.Queue()
+    stop_event = threading.Event()
+
+    # Running in a separate thread to be able to listen to keyboard interrupt
+    bot_thread = threading.Thread(target=run_viewbot_logic, args=(status_queue, stop_event, channel, total_views, duration, False))
+    bot_thread.start()
+
+    try:
+        while bot_thread.is_alive():
+            try:
+                item = status_queue.get_nowait()
+                print(item)
+            except queue.Empty:
+                time.sleep(1)
+    except KeyboardInterrupt:
+        print("Stopping bot...")
+        stop_event.set()
+    
+    bot_thread.join()
+    print("Bot has been shut down.")
