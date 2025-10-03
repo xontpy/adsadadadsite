@@ -37,7 +37,7 @@ def extract_channel_name(input_str):
         return channel.lower()
     return input_str.lower()
 
-def get_channel_id(channel_name):
+def get_channel_id(channel_name, status_queue):
     try:
         s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
         headers = {
@@ -52,30 +52,30 @@ def get_channel_id(channel_name):
         # Attempt 1: API v2
         try:
             response = s.get(f'https://kick.com/api/v2/channels/{channel_name}')
-            print(f"API v2 response status: {response.status_code}")
-            print(f"API v2 response content: {response.text[:500]}")
+            status_queue.put({'log_line': f"API v2 response status: {response.status_code}"})
+            status_queue.put({'log_line': f"API v2 response content: {response.text[:500]}"})
             if response.status_code == 200:
                 return response.json().get("id")
         except Exception as e:
-            print(f"API v2 failed: {e}")
+            status_queue.put({'log_line': f"API v2 failed: {e}"})
             pass
         
         # Attempt 2: API v1
         try:
             response = s.get(f'https://kick.com/api/v1/channels/{channel_name}')
-            print(f"API v1 response status: {response.status_code}")
-            print(f"API v1 response content: {response.text[:500]}")
+            status_queue.put({'log_line': f"API v1 response status: {response.status_code}"})
+            status_queue.put({'log_line': f"API v1 response content: {response.text[:500]}"})
             if response.status_code == 200:
                 return response.json().get("id")
         except Exception as e:
-            print(f"API v1 failed: {e}")
+            status_queue.put({'log_line': f"API v1 failed: {e}"})
             pass
         
         # Attempt 3: Scrape page
         try:
             response = s.get(f'https://kick.com/{channel_name}')
-            print(f"Scrape page response status: {response.status_code}")
-            print(f"Scrape page response content: {response.text[:500]}")
+            status_queue.put({'log_line': f"Scrape page response status: {response.status_code}"})
+            status_queue.put({'log_line': f"Scrape page response content: {response.text[:500]}"})
             if response.status_code == 200:
                 patterns = [
                     r'"id":(\d+).*?"slug":"' + re.escape(channel_name) + r'"',
@@ -88,12 +88,12 @@ def get_channel_id(channel_name):
                     if match:
                         return int(match.group(1))
         except Exception as e:
-            print(f"Scrape page failed: {e}")
+            status_queue.put({'log_line': f"Scrape page failed: {e}"})
             pass
             
         return None
     except Exception as e:
-        print(f"get_channel_id main exception: {e}")
+        status_queue.put({'log_line': f"get_channel_id main exception: {e}"})
         return None
 
 def get_token():
@@ -179,7 +179,7 @@ def run_viewbot_logic(status_queue, stop_event, channel, total_views, duration, 
     try:
         channel = extract_channel_name(channel)
         status_queue.put({'log_line': f"Fetching channel ID for: {channel}"})
-        channel_id = get_channel_id(channel)
+        channel_id = get_channel_id(channel, status_queue)
         if not channel_id:
             status_queue.put({'log_line': "Channel not found."})
             return
