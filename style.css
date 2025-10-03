@@ -503,3 +503,4 @@ input:checked + .slider:before { transform: translateX(26px); }
 .btn-discord-support:hover {
     background-color: #4a54c9;
 }
+
