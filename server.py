@@ -277,10 +277,15 @@ async def get_bot_status(user: dict = Depends(get_current_user)):
     # Always drain the queue to get the latest messages
     while not session['status_queue'].empty():
         message = session['status_queue'].get_nowait()
-        if isinstance(message, dict) and 'log_line' in message:
-            session['logs'].append(message['log_line'])
+        if isinstance(message, dict):
+            if 'log_line' in message:
+                session['logs'].append(message['log_line'])
+            else:
+                session['last_status'].update(message)
         else:
-            session['last_status'] = message
+            # To be safe, handle non-dict messages as simple status lines
+            session['last_status']['status_line'] = str(message)
+
 
     if session['thread'].is_alive():
         elapsed_time = time.time() - session['start_time']
