@@ -52,22 +52,30 @@ def get_channel_id(channel_name):
         # Attempt 1: API v2
         try:
             response = s.get(f'https://kick.com/api/v2/channels/{channel_name}')
+            print(f"API v2 response status: {response.status_code}")
+            print(f"API v2 response content: {response.text[:500]}")
             if response.status_code == 200:
                 return response.json().get("id")
-        except Exception:
+        except Exception as e:
+            print(f"API v2 failed: {e}")
             pass
         
         # Attempt 2: API v1
         try:
             response = s.get(f'https://kick.com/api/v1/channels/{channel_name}')
+            print(f"API v1 response status: {response.status_code}")
+            print(f"API v1 response content: {response.text[:500]}")
             if response.status_code == 200:
                 return response.json().get("id")
-        except Exception:
+        except Exception as e:
+            print(f"API v1 failed: {e}")
             pass
         
         # Attempt 3: Scrape page
         try:
             response = s.get(f'https://kick.com/{channel_name}')
+            print(f"Scrape page response status: {response.status_code}")
+            print(f"Scrape page response content: {response.text[:500]}")
             if response.status_code == 200:
                 patterns = [
                     r'"id":(\d+).*?"slug":"' + re.escape(channel_name) + r'"',
@@ -79,11 +87,13 @@ def get_channel_id(channel_name):
                     match = re.search(pattern, response.text, re.IGNORECASE)
                     if match:
                         return int(match.group(1))
-        except Exception:
+        except Exception as e:
+            print(f"Scrape page failed: {e}")
             pass
             
         return None
-    except Exception:
+    except Exception as e:
+        print(f"get_channel_id main exception: {e}")
         return None
 
 def get_token():
