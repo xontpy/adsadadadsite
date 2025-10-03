@@ -5,16 +5,12 @@ import re
 import threading
 import time
 import queue
-
 import tls_client
-import websockets
 from fake_useragent import UserAgent
 
 # --- Configuration from kick.py ---
 ua = UserAgent()
 CLIENT_TOKEN = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
-
-# As requested, using WS_HEADERS for requests
 WS_HEADERS = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
     'Accept-Language': 'en-US,en;q=0.9',
@@ -25,10 +21,12 @@ WS_HEADERS = {
     'Sec-Fetch-User': '?1',
     'Upgrade-Insecure-Requests': '1',
     'User-Agent': ua.random,
-    'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120", "Not-A.Brand";v="99"',
+    'sec-ch-ua': '"Chromium";v="137", "Google Chrome";v="137", "Not-A.Brand";v="99"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
 }
+
+# --- Functions from kick.py (adapted) ---
 
 def extract_channel_name(input_str):
     if "kick.com/" in input_str:
@@ -40,94 +38,93 @@ def extract_channel_name(input_str):
 def get_channel_id(channel_name, status_queue):
     try:
         s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
-        
-        # --- Attempt 1: API v2 with improved headers ---
-        api_headers = {
-            'User-Agent': ua.random,
-            'Accept': 'application/json',
+        s.headers.update({
+            'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': f'https://kick.com/{channel_name}',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://kick.com/',
             'Origin': 'https://kick.com',
+            'DNT': '1',
+            'Connection': 'keep-alive',
             'Sec-Fetch-Dest': 'empty',
             'Sec-Fetch-Mode': 'cors',
             'Sec-Fetch-Site': 'same-origin',
-            'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120", "Not-A.Brand";v="99"',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Windows"',
-        }
-        s.headers.update(api_headers)
+        })
         
         try:
             response = s.get(f'https://kick.com/api/v2/channels/{channel_name}')
+            status_queue.put({'log_line': f"get_channel_id (v2) status: {response.status_code}"})
             if response.status_code == 200:
                 return response.json().get("id")
-            else:
-                status_queue.put({'log_line': f"API v2 failed with status {response.status_code}: {response.text[:100]}"})
         except Exception as e:
-            status_queue.put({'log_line': f"API v2 request failed: {e}"})
+            status_queue.put({'log_line': f"get_channel_id (v2) failed: {e}"})
 
-        # --- Attempt 2: Scrape page with improved headers ---
-        page_headers = {
-            'User-Agent': ua.random,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Upgrade-Insecure-Requests': '1',
-            'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120", "Not-A.Brand";v="99"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"',
-        }
-        s.headers.update(page_headers)
-        
+        try:
+            response = s.get(f'https://kick.com/api/v1/channels/{channel_name}')
+            status_queue.put({'log_line': f"get_channel_id (v1) status: {response.status_code}"})
+            if response.status_code == 200:
+                return response.json().get("id")
+        except Exception as e:
+            status_queue.put({'log_line': f"get_channel_id (v1) failed: {e}"})
+
         try:
             response = s.get(f'https://kick.com/{channel_name}')
+            status_queue.put({'log_line': f"get_channel_id (scrape) status: {response.status_code}"})
             if response.status_code == 200:
-                # A more reliable regex to find the channel object
-                match = re.search(r'("channel"|data-v-[a-f0-9]{8})\s*:\s*{\s*("id"|data-v-[a-f0-9]{8})\s*:\s*(\d+)', response.text)
-                if match:
-                    return int(match.group(3))
-                
-                # Fallback to older regex patterns
                 patterns = [
                     r'"id":(\d+).*?"slug":"' + re.escape(channel_name) + r'"',
                     r'"channel_id":(\d+)',
                     r'channelId["\']:\s*(\d+)',
+                    r'channel.*?id["\']:\s*(\d+)'
                 ]
                 for pattern in patterns:
                     match = re.search(pattern, response.text, re.IGNORECASE)
                     if match:
                         return int(match.group(1))
-            else:
-                status_queue.put({'log_line': f"Scraping failed with status {response.status_code}: {response.text[:100]}"})
         except Exception as e:
-            status_queue.put({'log_line': f"Scraping request failed: {e}"})
-
+            status_queue.put({'log_line': f"get_channel_id (scrape) failed: {e}"})
+        
+        status_queue.put({'log_line': f"All methods failed to get channel ID for: {channel_name}"})
         return None
+        
     except Exception as e:
-        status_queue.put({'log_line': f"get_channel_id main exception: {e}"})
+        status_queue.put({'log_line': f"Error getting channel ID: {e}"})
         return None
 
-def get_token():
+def get_token(status_queue):
     try:
         s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
-        s.headers.update(WS_HEADERS) # Using the requested WS_HEADERS
+        s.headers.update({
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        })
         
-        # Attempt 1: From kick.py's primary method
         try:
             s.get("https://kick.com")
             s.headers["X-CLIENT-TOKEN"] = CLIENT_TOKEN
             response = s.get('https://websockets.kick.com/viewer/v1/token')
             if response.status_code == 200:
-                token = response.json().get("data", {}).get("token")
+                data = response.json()
+                token = data.get("data", {}).get("token")
                 if token:
                     return token
-        except Exception:
-            pass
-        
-        # Attempt 2: Fallback endpoints
+        except Exception as e:
+            status_queue.put({'log_line': f"get_token (primary) failed: {e}"})
+
         token_endpoints = [
             'https://websockets.kick.com/viewer/v1/token',
             'https://kick.com/api/websocket/token',
@@ -142,18 +139,22 @@ def get_token():
                     token = data.get("data", {}).get("token") or data.get("token")
                     if token:
                         return token
-            except Exception:
+            except Exception as e:
+                status_queue.put({'log_line': f"get_token (fallback {endpoint}) failed: {e}"})
                 continue
         
+        status_queue.put({'log_line': "Failed to get WebSocket token from all endpoints"})
         return None
-    except Exception:
+        
+    except Exception as e:
+        status_queue.put({'log_line': f"Error getting WebSocket token: {e}"})
         return None
 
-async def _websocket_worker(channel_id, index, initial_token, stop_event, status_queue):
+async def _websocket_worker(channel_id, initial_token, stop_event, status_queue):
     token = initial_token
     while not stop_event.is_set():
         if not token:
-            token = get_token()
+            token = get_token(status_queue)
             if not token:
                 await asyncio.sleep(3)
                 continue
@@ -169,25 +170,25 @@ async def _websocket_worker(channel_id, index, initial_token, stop_event, status
                     ping_count += 1
                     await websocket.send(json.dumps({"type": "ping"}))
                     
-                    # Sleep while periodically checking the stop event
                     for _ in range(12 + random.randint(1, 5)):
                         if stop_event.is_set():
                             break
                         await asyncio.sleep(1)
                     if stop_event.is_set():
                         break
-            token = None # Get a new token for the next connection
-        except Exception:
+            token = None
+        except Exception as e:
+            status_queue.put({'log_line': f"Websocket error: {e}"})
             await asyncio.sleep(random.randint(4, 8))
-            token = None # Get a new token on error
+            token = None
 
-def start_connection_thread(channel_id, index, initial_token, stop_event, status_queue):
+def start_connection_thread(channel_id, initial_token, stop_event, status_queue):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(_websocket_worker(channel_id, index, initial_token, stop_event, status_queue))
+    loop.run_until_complete(_websocket_worker(channel_id, initial_token, stop_event, status_queue))
 
-def fetch_token_job(index, tokens_list):
-    tokens_list[index] = get_token()
+def fetch_token_job(index, tokens_list, status_queue):
+    tokens_list[index] = get_token(status_queue)
 
 def run_viewbot_logic(status_queue, stop_event, channel, total_views, duration, rapid):
     try:
@@ -210,7 +211,7 @@ def run_viewbot_logic(status_queue, stop_event, channel, total_views, duration, 
             threads = []
             for i in range(needed):
                 if stop_event.is_set(): break
-                t = threading.Thread(target=fetch_token_job, args=(i, newly_fetched))
+                t = threading.Thread(target=fetch_token_job, args=(i, newly_fetched, status_queue))
                 threads.append(t)
                 t.start()
                 if rapid:
@@ -238,7 +239,7 @@ def run_viewbot_logic(status_queue, stop_event, channel, total_views, duration, 
         threads = []
         for i, token in enumerate(tokens):
             if stop_event.is_set(): break
-            t = threading.Thread(target=start_connection_thread, args=(channel_id, i, token, stop_event, status_queue))
+            t = threading.Thread(target=start_connection_thread, args=(channel_id, token, stop_event, status_queue))
             t.daemon = True
             threads.append(t)
             t.start()
