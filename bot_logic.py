@@ -1,479 +1,204 @@
-import sys
-import time
-import random
-import datetime
-import threading
 import asyncio
-import websockets
+import random
+import re
+import threading
+import time
 import json
-import os
-from threading import Thread
-from streamlink import Streamlink
-from threading import Semaphore
-from fake_useragent import UserAgent
 import tls_client
+import websockets
 
-ua = UserAgent()
-session = Streamlink()
-
-CLIENT_TOKEN = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
-WS_HEADERS = {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Connection': 'keep-alive',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    'User-Agent': ua.random,
-    'sec-ch-ua': '"Chromium";v="137", "Google Chrome";v="137", "Not-A.Brand";v="99"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-}
-session.set_option("http-headers", {
-    "Accept-Language": "en-US,en;q=0.5",
-    "Connection": "keep-alive",
-    "DNT": "1",
-    "Upgrade-Insecure-Requests": "1",
-    "User-Agent": ua.random,
-    "Client-ID": "ewvlchtxgqq88ru9gmfp1gmyt6h2b93",
-    "Referer": "https://www.google.com/"
-})
-
-class ViewerBot:
-    def __init__(self, nb_of_threads, channel_name, status_updater=None, stop_event=None):
-        self.nb_of_threads = int(nb_of_threads)
-        self.channel_name = self.extract_channel_name(channel_name)
-        self.request_count = 0
-        self.processes = []
-        self.channel_url = "https://kick.com/" + self.channel_name
-        self.thread_semaphore = Semaphore(int(nb_of_threads))
-        self.active_threads = 0
-        self.should_stop = False
-        self.request_per_second = 0
-        self.requests_in_current_second = 0
-        self.last_request_time = time.time()
-        self.status = {
-            'state': 'initialized',
-            'message': 'Bot initialized',
-            'proxy_count': 0,
-            'proxy_loading_progress': 0,
-            'startup_progress': 0
-        }
-        self.stream_url_cache = None
-        self.stream_url_last_updated = 0
-        self.stream_url_lock = threading.Lock()
-        self.stream_url_cache_duration = 0.5
-        self.channel_id = None
-        self.status_updater = status_updater
-        self.stop_event = stop_event
-
-    def logger(self, message):
-        if self.status_updater:
-            try:
-                self.status_updater.put({'log_line': str(message)})
-            except:
-                pass
-        else:
-            print(message)
+def get_channel_id(channel_name):
+    try:
+        s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
+        s.headers.update({
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://kick.com/',
+            'Origin': 'https://kick.com',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        })
         
-        self._stats_lock = threading.Lock()
-        self.open_websockets = 0
-        self.websocket_attempts = 0
-        self.live_streamer = False
-        self.start_time = None
-        self.stats_worker_thread = None
-        self.pings_sent = 0
-        self.heartbeats_sent = 0
-
-    def get_channel_id(self):
         try:
-            s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
-            s.headers.update({
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Referer': 'https://kick.com/',
-                'Origin': 'https://kick.com',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-origin',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"Windows"',
-            })
-            
-            try:
-                response = s.get(f'https://kick.com/api/v2/channels/{self.channel_name}')
-                if response.status_code == 200:
-                    data = response.json()
-                    self.channel_id = data.get("id")
-                    return self.channel_id
-            except Exception as e:
-                pass
-            
-            try:
-                response = s.get(f'https://kick.com/api/v1/channels/{self.channel_name}')
-                if response.status_code == 200:
-                    data = response.json()
-                    self.channel_id = data.get("id")
-                    return self.channel_id
-            except Exception as e:
-                pass
-            
-            try:
-                response = s.get(f'https://kick.com/{self.channel_name}')
-                if response.status_code == 200:
-                    import re
-                    patterns = [
-                        r'"id":(\d+).*?"slug":"' + re.escape(self.channel_name) + r'"',
-                        r'"channel_id":(\d+)',
-                        r'channelId["\']:\s*(\d+)',
-                        r'channel.*?id["\']:\s*(\d+)'
-                    ]
-                    
-                    for pattern in patterns:
-                        match = re.search(pattern, response.text, re.IGNORECASE)
-                        if match:
-                            self.channel_id = int(match.group(1))
-                            return self.channel_id
-            except Exception as e:
-                pass
-            
-            self.logger(f"All methods failed to get channel ID for: {self.channel_name}")
-            return None
-            
-        except Exception as e:
-            print(f"Error getting channel ID: {e}")
-            return None
-
-    def get_websocket_token(self):
+            response = s.get(f'https://kick.com/api/v2/channels/{channel_name}')
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("id")
+        except Exception:
+            pass
+        
         try:
-            s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
-            s.headers.update({
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Connection': 'keep-alive',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Upgrade-Insecure-Requests': '1',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"Windows"',
-            })
+            response = s.get(f'https://kick.com/api/v1/channels/{channel_name}')
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("id")
+        except Exception:
+            pass
+        
+        try:
+            response = s.get(f'https://kick.com/{channel_name}')
+            if response.status_code == 200:
+                patterns = [
+                    r'"id":(\d+).*?"slug":"' + re.escape(channel_name) + r'"',
+                    r'"channel_id":(\d+)',
+                    r'channelId["\']:\s*(\d+)',
+                    r'channel.*?id["\']:\s*(\d+)'
+                ]
+                
+                for pattern in patterns:
+                    match = re.search(pattern, response.text, re.IGNORECASE)
+                    if match:
+                        return int(match.group(1))
+        except Exception:
+            pass
+        
+        return None
+        
+    except Exception:
+        return None
+
+def get_token():
+    try:
+        s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
+        s.headers.update({
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        })
+        
+        try:
+            s.get("https://kick.com")
+            s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+            response = s.get('https://websockets.kick.com/viewer/v1/token')
             
+            if response.status_code == 200:
+                data = response.json()
+                token = data.get("data", {}).get("token")
+                if token:
+                    return token
+        except Exception:
+            pass
+        
+        token_endpoints = [
+            'https://websockets.kick.com/viewer/v1/token',
+            'https://kick.com/api/websocket/token',
+            'https://kick.com/api/v1/websocket/token'
+        ]
+        
+        for endpoint in token_endpoints:
             try:
-                session_resp = s.get("https://kick.com")
-                s.headers["X-CLIENT-TOKEN"] = CLIENT_TOKEN
-                response = s.get('https://websockets.kick.com/viewer/v1/token')
+                s.headers["X-CLIENT-TOKEN"] = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+                response = s.get(endpoint, timeout=10)
                 
                 if response.status_code == 200:
                     data = response.json()
-                    token = data.get("data", {}).get("token")
+                    token = data.get("data", {}).get("token") or data.get("token")
                     if token:
                         return token
-            except Exception as e:
-                pass
-            
-            token_endpoints = [
-                'https://websockets.kick.com/viewer/v1/token',
-                'https://kick.com/api/websocket/token',
-                'https://kick.com/api/v1/websocket/token'
-            ]
-            
-            for endpoint in token_endpoints:
-                try:
-                    s.headers["X-CLIENT-TOKEN"] = CLIENT_TOKEN
-                    response = s.get(endpoint, timeout=10)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        token = data.get("data", {}).get("token") or data.get("token")
-                        if token:
-                            return token
-                except Exception as e:
-                    continue
-            
-            self.logger("Failed to get WebSocket token from all endpoints")
-            return None
-            
-        except Exception as e:
-            self.logger(f"Error getting WebSocket token: {e}")
-            return None
-
-    def extract_channel_name(self, input_str):
-        if "kick.com/" in input_str:
-            parts = input_str.split("kick.com/")
-            channel = parts[1].split("/")[0].split("?")[0]
-            return channel.lower()
-        return input_str.lower()
-
-    def _stats_worker(self):
-        while not self.should_stop and (not self.stop_event or not self.stop_event.is_set()):
-            try:
-                with self._stats_lock:
-                    if self.start_time:
-                        elapsed = datetime.datetime.now() - self.start_time
-                        duration_str = f"{int(elapsed.total_seconds())}s"
-                    else:
-                        duration_str = "0s"
-
-                    open_ws = self.open_websockets
-                    attempts = self.websocket_attempts
-                    pings = self.pings_sent
-                    heartbeats = self.heartbeats_sent
-
-                if self.status_updater:
-                    self.status_updater.put({
-                        "current_viewers": open_ws,
-                        "target_viewers": self.nb_of_threads,
-                        "is_running": True,
-                        "log_line": f"Active connections: {open_ws}, Attempts: {attempts}, Pings: {pings}, Duration: {duration_str}"
-                    })
-
-                time.sleep(1)
-            except Exception as e:
-                time.sleep(1)
-    def update_status(self, state, message, proxy_count=None, proxy_loading_progress=None, startup_progress=None):
-        self.status.update({
-            'state': state,
-            'message': message,
-            **(({'proxy_count': proxy_count} if proxy_count is not None else {})),
-            **(({'proxy_loading_progress': proxy_loading_progress} if proxy_loading_progress is not None else {})),
-            **(({'startup_progress': startup_progress} if startup_progress is not None else {}))
-        })
-
-    def get_url(self):
-        current_time = time.time()
+            except Exception:
+                continue
         
-        with self.stream_url_lock:
-            if (self.stream_url_cache and 
-                current_time - self.stream_url_last_updated < self.stream_url_cache_duration):
-                return self.stream_url_cache
-            url = ""
-            try:
-                streams = session.streams(self.channel_url)
-                if streams:
-                    priorities = ['audio_only', '160p', '360p', '480p', '720p', '1080p', 'best', 'worst']
-                    
-                    for quality in priorities:
-                        if quality in streams:
-                            url = streams[quality].url
-                            break
-                    
-                    if not url and streams:
-                        quality = next(iter(streams))
-                        url = streams[quality].url
-                    
-                    self.stream_url_cache = url
-                    self.stream_url_last_updated = current_time
-            except Exception as e:
-                pass
-            
-            return url
-
-    def stop(self):
-        self.should_stop = True
+        return None
         
-        for thread in self.processes:
-            if thread.is_alive():
-                thread.join(timeout=1)
-        
-        self.processes.clear()
-        self.active_threads = 0
+    except Exception:
+        return None
 
-    def open_url(self):
-        self.send_websocket_view()
-
-    def send_websocket_view(self):
-        self.active_threads += 1
-        with self._stats_lock:
-            self.websocket_attempts += 1
-        try:
-            token = self.get_websocket_token()
+async def _websocket_worker(channel_id, index, initial_token):
+    token = initial_token
+    while True:
+        if not token:
+            token = get_token()
             if not token:
-                return
-            
-            if not self.channel_id:
-                self.channel_id = self.get_channel_id()
-                if not self.channel_id:
-                    return
+                await asyncio.sleep(3)
+                continue
+            print(f"[{index}] Got new token: {token}")
+        else:
+            print(f"[{index}] Using token: {token}")
 
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self._websocket_worker(token))
-            except Exception as e:
-                pass
-            finally:
-                try:
-                    loop.close()
-                except Exception:
-                    pass
-                    
-        except Exception as e:
-            pass
-        finally:
-            self.active_threads -= 1
-            self.thread_semaphore.release()
-
-    async def _websocket_worker(self, token):
-        connection_opened = False
         try:
             ws_url = f"wss://websockets.kick.com/viewer/v1/connect?token={token}"
             
             async with websockets.connect(ws_url) as websocket:
-                with self._stats_lock:
-                    self.open_websockets += 1
-                connection_opened = True
-                
                 handshake_msg = {
                     "type": "channel_handshake",
-                    "data": {
-                        "message": {"channelId": self.channel_id}
-                    }
+                    "data": {"message": {"channelId": channel_id}}
                 }
                 await websocket.send(json.dumps(handshake_msg))
-                with self._stats_lock:
-                    self.heartbeats_sent += 1
+                print(f"[{index}] handshake sent")
                 
                 ping_count = 0
-                while not self.should_stop and ping_count < 10:
+                while ping_count < 10:
                     ping_count += 1
                     
                     ping_msg = {"type": "ping"}
                     await websocket.send(json.dumps(ping_msg))
-                    with self._stats_lock:
-                        self.pings_sent += 1
-                    self.request_count += 1
+                    print(f"[{index}] ping")
                     
                     sleep_time = 12 + random.randint(1, 5)
+                    print(f"[{index}] waiting {sleep_time}s")
                     await asyncio.sleep(sleep_time)
-                
-        except websockets.exceptions.ConnectionClosed:
-            pass
+            token = None
         except Exception as e:
-            pass
-        finally:
-            if connection_opened:
-                with self._stats_lock:
-                    if self.open_websockets > 0:
-                        self.open_websockets -= 1
+            if "429" in str(e):
+                backoff_time = random.randint(15, 30)
+                await asyncio.sleep(backoff_time)
+            else:
+                await asyncio.sleep(random.randint(4, 8))
+            token = None
 
-    def main(self):
-        start = datetime.datetime.now()
-        self.start_time = start
+def start_connection_thread(channel_id, index, initial_token):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(_websocket_worker(channel_id, index, initial_token))
 
-        self.channel_id = self.get_channel_id()
-        self.processes = []
-        self.live_streamer = True
-
-        self.stats_worker_thread = Thread(target=self._stats_worker, daemon=True)
-        self.stats_worker_thread.start()
-
-        while not self.should_stop and (not self.stop_event or not self.stop_event.is_set()):
-            for i in range(0, int(self.nb_of_threads)):
-                acquired = self.thread_semaphore.acquire()
-                if acquired:
-                    threaded = Thread(target=self.open_url)
-                    self.processes.append(threaded)
-                    threaded.daemon = True
-                    threaded.start()
-                    
-                    time.sleep(0.35)
-
-            if self.should_stop:
-                for _ in range(self.nb_of_threads):
-                    try:
-                        self.thread_semaphore.release()
-                    except ValueError:
-                        pass
-                break
-
-        for t in self.processes:
-            t.join()
-
-
-# This is the main entry point called by the web server.
-def run_viewbot_logic(status_updater, stop_event, channel, viewers, duration_minutes, rapid=False):
-    """
-    This function orchestrates the bot based on the ViewerBot class.
-    Adapted for web UI with status updates and stop event.
-    """
-    def bot_logger(message):
-        """Simple logger for web UI."""
-        if callable(status_updater):
-            try:
-                if isinstance(message, dict):
-                    status_updater.put(message)
-                else:
-                    status_updater.put({'log_line': str(message)})
-            except:
-                pass
-        else:
-            print(message)
-
-    try:
-        bot_logger("Initializing bot...")
-
-        bot = ViewerBot(
-            nb_of_threads=int(viewers),
-            channel_name=channel,
-            status_updater=status_updater,
-            stop_event=stop_event
-        )
-
-        # Modify bot to check stop_event
-        original_should_stop = bot.should_stop
-        def check_stop():
-            return original_should_stop or (hasattr(stop_event, 'is_set') and stop_event.is_set())
-        bot.should_stop = property(check_stop)
-
-        # Run the bot
-        bot.main()
-
-    except Exception as e:
-        bot_logger(f"Critical error in bot: {e}")
-    finally:
-        bot_logger("Bot process has stopped.")
-        try:
-            status_updater.put({"is_running": False, "current_viewers": 0})
-        except:
-            pass
-
+def fetch_token_job(index, tokens_list):
+    tokens_list[index] = get_token()
 
 if __name__ == "__main__":
-    try:
-        os.system('cls' if os.name == 'nt' else 'clear')
-        channel = input("Enter channel name or URL: ").strip()
-        if not channel:
-            print("Channel name is needed.")
-            sys.exit(1)
-            
-        while True:
-            try:
-                threads = int(input("Enter number of viewers: ").strip())
-                if threads > 0:
-                    break
-                else:
-                    print("Number of threads must be bigger than 0")
-            except ValueError:
-                print("Please enter a valid number")
-        
+    channel = input("Channel link or name: ").split("/")[-1]
+    total_views = int(input("How many viewers to send: "))
 
-        bot = ViewerBot(
-            nb_of_threads=threads,
-            channel_name=channel
-        )
-        bot.main()
-    except KeyboardInterrupt:
-        if 'bot' in locals():
-            bot.stop()
-        sys.exit(0)
+    channel_id = get_channel_id(channel)
+    if not channel_id:
+        print("Channel not found.")
+        exit(1)
+
+    print(f"Fetching {total_views} tokens...")
+    tokens = [None] * total_views
+    threads = []
+    for i in range(total_views):
+        t = threading.Thread(target=fetch_token_job, args=(i, tokens))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    valid_tokens = [t for t in tokens if t]
+    print(f"Successfully fetched {len(valid_tokens)} tokens. Starting viewers...")
+
+    threads = []
+    for i, token in enumerate(valid_tokens):
+        t = threading.Thread(target=start_connection_thread, args=(channel_id, i, token))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
