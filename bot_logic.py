@@ -25,7 +25,7 @@ WS_HEADERS = {
     'Sec-Fetch-User': '?1',
     'Upgrade-Insecure-Requests': '1',
     'User-Agent': ua.random,
-    'sec-ch-ua': '"Chromium";v="137", "Google Chrome";v="137", "Not-A.Brand";v="99"',
+    'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120", "Not-A.Brand";v="99"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
 }
@@ -40,57 +40,71 @@ def extract_channel_name(input_str):
 def get_channel_id(channel_name, status_queue):
     try:
         s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
-        headers = {
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://kick.com/',
-            'Origin': 'https://kick.com',
-            'User-Agent': ua.random,
-        }
-        s.headers.update(headers)
         
-        # Attempt 1: API v2
+        # --- Attempt 1: API v2 with improved headers ---
+        api_headers = {
+            'User-Agent': ua.random,
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': f'https://kick.com/{channel_name}',
+            'Origin': 'https://kick.com',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120", "Not-A.Brand";v="99"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        }
+        s.headers.update(api_headers)
+        
         try:
             response = s.get(f'https://kick.com/api/v2/channels/{channel_name}')
-            status_queue.put({'log_line': f"API v2 response status: {response.status_code}"})
-            status_queue.put({'log_line': f"API v2 response content: {response.text[:500]}"})
             if response.status_code == 200:
                 return response.json().get("id")
+            else:
+                status_queue.put({'log_line': f"API v2 failed with status {response.status_code}: {response.text[:100]}"})
         except Exception as e:
-            status_queue.put({'log_line': f"API v2 failed: {e}"})
-            pass
+            status_queue.put({'log_line': f"API v2 request failed: {e}"})
+
+        # --- Attempt 2: Scrape page with improved headers ---
+        page_headers = {
+            'User-Agent': ua.random,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120", "Not-A.Brand";v="99"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        }
+        s.headers.update(page_headers)
         
-        # Attempt 2: API v1
-        try:
-            response = s.get(f'https://kick.com/api/v1/channels/{channel_name}')
-            status_queue.put({'log_line': f"API v1 response status: {response.status_code}"})
-            status_queue.put({'log_line': f"API v1 response content: {response.text[:500]}"})
-            if response.status_code == 200:
-                return response.json().get("id")
-        except Exception as e:
-            status_queue.put({'log_line': f"API v1 failed: {e}"})
-            pass
-        
-        # Attempt 3: Scrape page
         try:
             response = s.get(f'https://kick.com/{channel_name}')
-            status_queue.put({'log_line': f"Scrape page response status: {response.status_code}"})
-            status_queue.put({'log_line': f"Scrape page response content: {response.text[:500]}"})
             if response.status_code == 200:
+                # A more reliable regex to find the channel object
+                match = re.search(r'("channel"|data-v-[a-f0-9]{8})\s*:\s*{\s*("id"|data-v-[a-f0-9]{8})\s*:\s*(\d+)', response.text)
+                if match:
+                    return int(match.group(3))
+                
+                # Fallback to older regex patterns
                 patterns = [
                     r'"id":(\d+).*?"slug":"' + re.escape(channel_name) + r'"',
                     r'"channel_id":(\d+)',
                     r'channelId["\']:\s*(\d+)',
-                    r'channel.*?id["\']:\s*(\d+)'
                 ]
                 for pattern in patterns:
                     match = re.search(pattern, response.text, re.IGNORECASE)
                     if match:
                         return int(match.group(1))
+            else:
+                status_queue.put({'log_line': f"Scraping failed with status {response.status_code}: {response.text[:100]}"})
         except Exception as e:
-            status_queue.put({'log_line': f"Scrape page failed: {e}"})
-            pass
-            
+            status_queue.put({'log_line': f"Scraping request failed: {e}"})
+
         return None
     except Exception as e:
         status_queue.put({'log_line': f"get_channel_id main exception: {e}"})
