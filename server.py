@@ -17,7 +17,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from pydantic import BaseModel
 from bot_logic import run_viewbot_logic
-from twitch import run_twitch_viewbot_logic
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from collections import deque
@@ -193,47 +192,6 @@ async def start_bot(payload: StartBotPayload, user: dict = Depends(get_current_u
         }
 
         return {"message": "Bot started successfully"}
-    except Exception as e:
-        if user_id in user_bot_sessions:
-            del user_bot_sessions[user_id]
-        raise HTTPException(status_code=500, detail=f"Server error: {e}")
-
-@app.post("/api/start-twitch")
-async def start_twitch_bot(payload: StartBotPayload, user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required.")
-
-    user_id = user['id']
-
-    session = user_bot_sessions.get(user_id)
-    if session and session['thread'].is_alive():
-        raise HTTPException(status_code=400, detail="You already have a bot running.")
-
-    if payload.views > user.get('max_views', 0):
-        raise HTTPException(status_code=403, detail=f"You are not allowed to start more than {user.get('max_views', 0)} views.")
-
-    try:
-        stop_event = threading.Event()
-        status_queue = queue.Queue()
-
-        thread = threading.Thread(
-            target=run_twitch_viewbot_logic,
-            args=(status_queue, stop_event, payload.channel, payload.views, payload.duration)
-        )
-        thread.start()
-
-        user_bot_sessions[user_id] = {
-            'thread': thread,
-            'stop_event': stop_event,
-            'status_queue': status_queue,
-            'last_status': {"is_running": True, "status_line": "Initializing..."},
-            'start_time': time.time(),
-            'duration': payload.duration * 60,
-            'target_viewers': payload.views,
-            'logs': deque(maxlen=100)
-        }
-
-        return {"message": "Twitch bot started successfully"}
     except Exception as e:
         if user_id in user_bot_sessions:
             del user_bot_sessions[user_id]
