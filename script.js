@@ -237,20 +237,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if(progressBar) progressBar.style.width = `${progress}%`;
         if(progressPercent) progressPercent.textContent = `${Math.round(progress)}%`;
 
-        if (status.logs) {
+        if (status.logs && logContainer) {
             const logText = status.logs.join('\n');
-            if (logContainer) { // Part of the status screen
-                logContainer.innerHTML = logText;
-                logContainer.scrollTop = logContainer.scrollHeight;
-            }
-            if (logsPage) { // The dedicated Logs page
-                // Create a preformatted element to preserve line breaks
-                logsPage.innerHTML = `<pre class="logs-full-content">${logText}</pre>`;
-                const logContent = logsPage.querySelector('.logs-full-content');
-                if (logContent) {
-                    logContent.scrollTop = logContent.scrollHeight;
-                }
-            }
+            logContainer.textContent = logText;
+            logContainer.scrollTop = logContainer.scrollHeight;
         }
 
         // Hide stop button if bot not running or not in running state
