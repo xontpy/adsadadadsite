@@ -27,6 +27,9 @@
                 <a href="#" class="menu-item" data-page="settings">
                     <i class="fas fa-cog"></i> Settings
                 </a>
+                <a href="#" class="menu-item" data-page="logs">
+                    <i class="fas fa-file-alt"></i> Logs
+                </a>
                 <a href="#" class="menu-item" data-page="support"><i class="fas fa-question-circle"></i> Support</a>
             </nav>
             <div class="user-profile-sidebar">
@@ -98,8 +101,12 @@
                     </div>
                     <div class="status-metrics">
                         <div class="metric-box">
-                            <span class="metric-value" id="active-viewers">0</span>
+                            <span class="metric-value" id="active-viewers">0 / 0</span>
                             <small>Active Viewers</small>
+                        </div>
+                        <div class="metric-box">
+                            <span class="metric-value" id="total-duration">0 min</span>
+                            <small>Total Duration</small>
                         </div>
                         <div class="metric-box">
                             <span class="metric-value" id="time-remaining">00:00</span>
@@ -171,4 +178,3 @@
     <script src="script.js"></script>
 </body>
 </html>
-
