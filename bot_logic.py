@@ -239,7 +239,9 @@ def run_viewbot_logic(status_queue, stop_event, channel, total_views, duration, 
         end_time = start_time + duration * 60 if duration > 0 else float('inf')
 
         while time.time() < end_time and not stop_event.is_set():
-            time.sleep(1)
+            alive_count = sum(1 for t in threads if t.is_alive())
+            status_queue.put({'current_viewers': alive_count})
+            time.sleep(2)
 
         stop_event.set()
         status_queue.put({'log_line': "Bot stopping..."})
