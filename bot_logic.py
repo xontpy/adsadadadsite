@@ -8,6 +8,7 @@ import queue
 
 import tls_client
 import websockets
+import undetected_chromedriver as uc
 
 
 def extract_channel_name(input_str):
@@ -74,6 +75,39 @@ def get_channel_id(channel_name):
         return None
         
     except Exception:
+        return None
+
+
+def get_channel_id_with_selenium(channel_name):
+    try:
+        options = uc.ChromeOptions()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        driver = uc.Chrome(options=options, use_subprocess=True)
+        
+        driver.get(f"https://kick.com/{channel_name}")
+        
+        time.sleep(5)
+        
+        page_source = driver.page_source
+        driver.quit()
+        
+        patterns = [
+            r'"id":(\d+).*?"slug":"' + re.escape(channel_name) + r'"',
+            r'"channel_id":(\d+)',
+            r'channelId["\']:\s*(\d+)',
+            r'channel.*?id["\']:\s*(\d+)'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, page_source, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+                
+        return None
+    except Exception as e:
+        print(f"Selenium method failed: {e}")
         return None
 
 
@@ -196,6 +230,11 @@ def run_viewbot_logic(status_queue, stop_event, channel, total_views, duration, 
         channel = extract_channel_name(channel)
         status_queue.put({'log_line': f"Fetching channel ID for: {channel}"})
         channel_id = get_channel_id(channel)
+
+        if not channel_id:
+            status_queue.put({'log_line': "Primary channel ID fetch failed. Trying fallback..."})
+            channel_id = get_channel_id_with_selenium(channel)
+
         if not channel_id:
             status_queue.put({'log_line': "Channel not found."})
             return
