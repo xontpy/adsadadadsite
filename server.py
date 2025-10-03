@@ -14,7 +14,7 @@ import sys
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse, FileResponse
 from pydantic import BaseModel
 from bot_logic import run_viewbot_logic
 from fastapi.middleware.cors import CORSMiddleware
@@ -306,7 +306,16 @@ async def get_proxies(user: dict = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to read proxies: {e}')
 
+@app.get("/")
+async def get_landing():
+    return FileResponse('landing.html')
+
+@app.get("/app")
+async def get_app():
+    return FileResponse('app.html')
+
 # --- Serve Frontend ---
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
 
 
