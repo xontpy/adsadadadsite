@@ -10,6 +10,14 @@ import tls_client
 import websockets
 
 
+def extract_channel_name(input_str):
+    if "kick.com/" in input_str:
+        parts = input_str.split("kick.com/")
+        channel = parts[1].split("/")[0].split("?")[0]
+        return channel.lower()
+    return input_str.lower()
+
+
 def get_channel_id(channel_name):
     try:
         s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
@@ -52,8 +60,8 @@ def get_channel_id(channel_name):
                 patterns = [
                     r'"id":(\d+).*?"slug":"' + re.escape(channel_name) + r'"',
                     r'"channel_id":(\d+)',
-                    r'channelId[\"\']:\s*(\d+)',
-                    r'channel.*?id[\"\']:\s*(\d+)'
+                    r'channelId["\']:\s*(\d+)',
+                    r'channel.*?id["\']:\s*(\d+)'
                 ]
                 
                 for pattern in patterns:
@@ -67,6 +75,7 @@ def get_channel_id(channel_name):
         
     except Exception:
         return None
+
 
 def get_token():
     try:
@@ -184,6 +193,7 @@ def fetch_token_job(index, tokens_list):
 
 def run_viewbot_logic(status_queue, stop_event, channel, total_views, duration, rapid):
     try:
+        channel = extract_channel_name(channel)
         status_queue.put({'log_line': f"Fetching channel ID for: {channel}"})
         channel_id = get_channel_id(channel)
         if not channel_id:
