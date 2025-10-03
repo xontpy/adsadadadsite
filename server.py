@@ -142,8 +142,13 @@ async def callback(code: str, request: Request):
         token_r = requests.post('https://discord.com/api/oauth2/token', data=token_data, headers=headers)
         token_r.raise_for_status()
         discord_access_token = token_r.json()['access_token']
-        return RedirectResponse(url=f"/#token={discord_access_token}")
+        
+        # Redirect to the /app page with the token
+        response = RedirectResponse(url=f"/app#token={discord_access_token}")
+        return response
     except requests.exceptions.RequestException as e:
+        # Log the error for debugging
+        print(f"Error during Discord token exchange: {e}", file=sys.stderr)
         raise HTTPException(status_code=500, detail=f"Failed to communicate with Discord: {e}")
 
 @app.get("/api/me")
@@ -306,20 +311,18 @@ async def get_proxies(user: dict = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to read proxies: {e}')
 
+# Serve landing.html at the root
 @app.get("/")
 async def get_landing():
     return FileResponse('landing.html')
 
+# Serve app.html at /app
 @app.get("/app")
 async def get_app():
     return FileResponse('app.html')
 
+
 # --- Serve Frontend ---
+# Mount static files AFTER specific routes
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
-
-
-# --- Environment Setup ---
-# This is the crucial fix: By setting this environment variable, we are telling the OAuth
-# library that it's acceptable to handle redirects over plain HTTP. This is safe and
-# necessary for a local development environment that isn't running with a TLS certificate.
