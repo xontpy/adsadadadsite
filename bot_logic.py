@@ -1,11 +1,13 @@
 import asyncio
+import json
 import random
 import re
 import threading
 import time
-import json
+
 import tls_client
 import websockets
+
 
 def get_channel_id(channel_name):
     try:
@@ -181,21 +183,35 @@ if __name__ == "__main__":
         exit(1)
 
     print(f"Fetching {total_views} tokens...")
-    tokens = [None] * total_views
+    
+    tokens = []
+    while len(tokens) < total_views:
+        needed = total_views - len(tokens)
+        print(f"Need to fetch {needed} more tokens...")
+        
+        newly_fetched = [None] * needed
+        threads = []
+        for i in range(needed):
+            t = threading.Thread(target=fetch_token_job, args=(i, newly_fetched))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+        
+        valid_new_tokens = [t for t in newly_fetched if t]
+        tokens.extend(valid_new_tokens)
+        
+        print(f"Fetched {len(valid_new_tokens)} new tokens. Total: {len(tokens)}/{total_views}")
+        
+        if len(tokens) < total_views:
+            print("Some token fetches failed, retrying in 3 seconds...")
+            time.sleep(3)
+
+    print(f"Successfully fetched {len(tokens)} tokens. Starting viewers...")
+
     threads = []
-    for i in range(total_views):
-        t = threading.Thread(target=fetch_token_job, args=(i, tokens))
-        threads.append(t)
-        t.start()
-
-    for t in threads:
-        t.join()
-
-    valid_tokens = [t for t in tokens if t]
-    print(f"Successfully fetched {len(valid_tokens)} tokens. Starting viewers...")
-
-    threads = []
-    for i, token in enumerate(valid_tokens):
+    for i, token in enumerate(tokens):
         t = threading.Thread(target=start_connection_thread, args=(channel_id, i, token))
         threads.append(t)
         t.start()
