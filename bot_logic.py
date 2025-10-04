@@ -7,10 +7,13 @@ import time
 import queue
 import tls_client
 from fake_useragent import UserAgent
+import os
 
 # --- Configuration from kick.py ---
 ua = UserAgent()
 CLIENT_TOKEN = "e1393935a959b4020a4491574f6490129f678acdaa92760471263db43487f823"
+PROXIES = []
+
 WS_HEADERS = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
     'Accept-Language': 'en-US,en;q=0.9',
@@ -28,6 +31,24 @@ WS_HEADERS = {
 
 # --- Functions from kick.py (adapted) ---
 
+def load_proxies(status_queue):
+    proxy_file = "proxies.txt"
+    if not os.path.exists(proxy_file):
+        status_queue.put({'log_line': "WARNING: proxies.txt not found. Running without proxies."})
+        return
+    try:
+        with open(proxy_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    PROXIES.append(f"http://{line}")
+        if PROXIES:
+            status_queue.put({'log_line': f"Loaded {len(PROXIES)} proxies."})
+        else:
+            status_queue.put({'log_line': "WARNING: proxies.txt is empty. Running without proxies."})
+    except Exception as e:
+        status_queue.put({'log_line': f"Error loading proxies: {e}"})
+
 def extract_channel_name(input_str):
     if "kick.com/" in input_str:
         parts = input_str.split("kick.com/")
@@ -36,8 +57,13 @@ def extract_channel_name(input_str):
     return input_str.lower()
 
 def get_channel_id(channel_name, status_queue):
+    proxy = random.choice(PROXIES) if PROXIES else None
     try:
-        s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
+        s = tls_client.Session(
+            client_identifier="chrome_124",
+            random_tls_extension_order=True,
+            proxy=proxy
+        )
         s.headers.update({
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -49,8 +75,8 @@ def get_channel_id(channel_name, status_queue):
             'Sec-Fetch-Dest': 'empty',
             'Sec-Fetch-Mode': 'cors',
             'Sec-Fetch-Site': 'same-origin',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Windows"',
         })
@@ -96,8 +122,13 @@ def get_channel_id(channel_name, status_queue):
         return None
 
 def get_token(status_queue):
+    proxy = random.choice(PROXIES) if PROXIES else None
     try:
-        s = tls_client.Session(client_identifier="chrome_120", random_tls_extension_order=True)
+        s = tls_client.Session(
+            client_identifier="chrome_124",
+            random_tls_extension_order=True,
+            proxy=proxy
+        )
         s.headers.update({
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -107,8 +138,8 @@ def get_token(status_queue):
             'Sec-Fetch-Site': 'none',
             'Sec-Fetch-User': '?1',
             'Upgrade-Insecure-Requests': '1',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Windows"',
         })
@@ -191,6 +222,7 @@ def fetch_token_job(index, tokens_list, status_queue):
     tokens_list[index] = get_token(status_queue)
 
 def run_viewbot_logic(status_queue, stop_event, channel, total_views, duration, rapid):
+    load_proxies(status_queue)
     try:
         channel = extract_channel_name(channel)
         status_queue.put({'log_line': f"Fetching channel ID for: {channel}"})
